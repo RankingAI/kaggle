@@ -16,13 +16,13 @@ if __name__ == '__main__':
     # for idx in df.index:
     #     print(','.join([str(v) for v in df.ix[idx].values]))
     #     break
-
-
-    import os.path
-
-    N = 1000000
-    M = 400
-    file_path = "/Users/yuanpingzhou/project/workspace/python/kaggle/Zillow/data/test.pkl"
+    #
+    #
+    # import os.path
+    #
+    # N = 1000000
+    # M = 400
+    # file_path = "/Users/yuanpingzhou/project/workspace/python/kaggle/Zillow/data/test.pkl"
     # data = pd.DataFrame(data = np.random.sample(N),index = range(N),columns=['col'])
     # for c in range(M):
     #     data[c] = data['col']
@@ -30,14 +30,12 @@ if __name__ == '__main__':
     # print(n_bytes)
     # max_bytes = 2 ** 31 - 1
 
-    start = time.time()
-    #data.to_hdf(path_or_buf=file_path,key='test',mode = 'w',complib='blosc')
-    data = pd.read_hdf(path_or_buf= file_path,key = 'test')
-    print(data.head())
-    end = time.time()
-    print('time elapsed %ds' % (end - start))
-
-
+    # start = time.time()
+    # #data.to_hdf(path_or_buf=file_path,key='test',mode = 'w',complib='blosc')
+    # data = pd.read_hdf(path_or_buf= file_path,key = 'test')
+    # print(data.head())
+    # end = time.time()
+    # print('time elapsed %ds' % (end - start))
 
     # n_bytes = 2 ** 31 + 1000
     # data = bytearray(n_bytes)
@@ -62,3 +60,9 @@ if __name__ == '__main__':
     # data2 = pickle.loads(bytes_in)
     #
     # assert (data == data2)
+
+    df = pd.DataFrame(np.random.randn(100, 2))
+
+    msk = np.random.rand(len(df)) < 0.8
+    train = df[msk]
+    print(train.index)

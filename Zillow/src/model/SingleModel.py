@@ -1,17 +1,27 @@
 import time
 from model.LightGBM import LGB
+from model.XGBoost import XGB
 
 class SingleModel:
 
     @staticmethod
     def __LaunchTraining(task,InputDir,OutputDir):
 
+        d_model = {'lgb': LGB,
+                   'xgb': XGB
+                   }
+
         start = time.time()
-        if(task == 'lgb'):
-            lgb = LGB(InputDir,OutputDir)
-            lgb.train()
-            #lgb.predict()
-            #lgb.submmit()
+
+        model = d_model[task](InputDir,OutputDir)
+
+        print('Training begins ...')
+        model.train()
+        print('Prediction begins ...')
+        model.predict()
+        print('Submmit begins ...')
+        model.submmit()
+
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))
 

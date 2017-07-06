@@ -6,27 +6,22 @@ import gc
 import os
 import time
 import math
+from datetime import datetime
 
 class LGB(ModelBase):
 
     ## rewritten method
     def train(self):
 
-        print(len(self.TrainData))
+        start = time.time()
+
+        print('size before truncated outliers is %d ' % len(self.TrainData))
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > -0.4) & (self.TrainData['logerror'] < 0.4)]
-        print(len(self.TrainData))
+        print('size after truncated outliers is %d ' % len(self.TrainData))
 
         x_train = self.TrainData.drop(['logerror','parcelid'],axis= 1)
         y_train = self.TrainData['logerror']
         self._l_train_columns = x_train.columns
-
-        split = 80000
-        x_train, y_train, x_valid, y_valid = x_train[:split], y_train[:split], x_train[split:], y_train[split:]
-        x_train = x_train.values.astype(np.float32, copy=False)
-        x_valid = x_valid.values.astype(np.float32, copy=False)
-
-        d_train = lightgbm.Dataset(x_train, label=y_train)
-        d_valid = lightgbm.Dataset(x_valid, label=y_valid)
 
         params = {}
         params['max_bin'] = 8
@@ -35,9 +30,18 @@ class LGB(ModelBase):
         params['metric'] = 'mae'
         params['sub_feature'] = 0.8
         params['bagging_fraction'] = 0.85  # sub_row
-        params['num_leaves'] = 64
+        params['num_leaves'] = 128
         params['min_data'] = 300
         params['min_hessian'] = 0.01
+
+        ## for validation in parameter tuning
+        # split = 80000
+        # x_train, y_train, x_valid, y_valid = x_train[:split], y_train[:split], x_train[split:], y_train[split:]
+        # x_train = x_train.values.astype(np.float32, copy=False)
+        # x_valid = x_valid.values.astype(np.float32, copy=False)
+        #
+        # d_train = lightgbm.Dataset(x_train, label=y_train)
+        # d_valid = lightgbm.Dataset(x_valid, label=y_valid)
 
         # x_train = x_train.values.astype(np.float32, copy=False)
         # d_train = lightgbm.Dataset(x_train, label=y_train)
@@ -58,50 +62,52 @@ class LGB(ModelBase):
         #             BestParams['learning_rate'] = lr
         #             BestParams['bagging_freq'] = bf
         # print(BestParams)
+
+        d_train = lightgbm.Dataset(x_train,label=y_train)
         params['learning_rate'] = 0.020
         params['bagging_freq'] = 30
-        self._model = lightgbm.train(params,d_train,200,verbose_eval= True,valid_sets= [d_valid])
+        self._model = lightgbm.train(params,d_train,100,verbose_eval= True)
 
         del self.TrainData
         gc.collect()
+
+        end = time.time()
+        print('Training is done. Time elapsed %ds' % (end - start))
 
     ## rewritten method
     def predict(self):
 
         # CalibrationFactor = 0.03
         # cal = CalibrationFactor * 0.013
+        self.TestData = self._data.LoadFromHdfFile(self.InputDir,'test')
+        #self.TestData = self.TestData.sample(frac = 0.2)
+
         self._sub = pd.DataFrame(index = self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']
 
+        N = 200000
+        start = time.time()
         for d in self._l_test_predict_columns:
-            start = time.time()
+            s0 = time.time()
 
-            l_test_columns = ['%s%s' % (col,d) if(col in ['lastgap','monthyear']) else col for col in self._l_train_columns]
-
+            print('Prediction for column %s ' % d)
+            l_test_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
             x_test = self.TestData[l_test_columns]
-            for c in x_test.dtypes[x_test.dtypes == object].index.values:
-                x_test[c] = (x_test[c] == True)
-            x_test = x_test.values.astype(np.float32, copy=False)
 
-            print("Start prediction ...")
-            self._model.reset_parameter({"num_threads": 4})
-            # sub[d] = (1 - CalibrationFactor) * clf.predict(x_test) + cal
-            self._sub[d] = self._model.predict(x_test)
+            for idx in range(0, len(x_test), N):
+                x_test_block = x_test[idx:idx + N].values.astype(np.float32, copy=False)
+                self._model.reset_parameter({"num_threads": 4})
+                ret = self._model.predict(x_test_block)
+                self._sub.loc[x_test[idx:idx + N].index, d] = ret
+                print(np.mean(np.abs(ret)))
 
-            end = time.time()
-            print('%s done. time elapsed %ds' % (d,(end - start)))
+            e0 = time.time()
+            print('Prediction for column %s is done. time elapsed %ds' % (d, (e0 - s0)))
 
         ## clean
         del self.TestData
         gc.collect()
+        end = time.time()
+        print('Prediction is done. time elapsed %ds' % (end - start))
 
-    def submmit(self):
 
-        if(os.path.exists(self.OutputDir) == False):
-            os.makedirs(self.OutputDir)
-
-        m = np.mean(self._sub[self._l_test_predict_columns].mean())
-        with open('%s/eval.log' % self.OutputDir,'a+') as o_file:
-            o_file.write('%.4f\n' % m)
-        o_file.close()
-        self._sub.to_csv('%s/lgb.csv' % self.OutputDir, index=False, float_format='%.4f')

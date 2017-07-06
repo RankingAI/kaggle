@@ -5,6 +5,18 @@ import os
 
 class DataIO:
 
+    ## use compressed hdf when data is pretty huge
+    @staticmethod
+    def LoadFromHdfFile(InputDir, mode = 'train'):
+
+        if(mode == 'train'):
+            data = pd.read_hdf(path_or_buf= '%s/train.hdf' % InputDir, key='test')
+        else:
+            data = pd.read_hdf(path_or_buf= '%s/test.hdf' % InputDir, key='test')
+        #TestData = pd.read_hdf(path_or_buf= '%s/test.hdf' % InputDir, key='test')
+
+        return data
+
     ## class method, load data with pkl format
     @staticmethod
     def LoadFromPklFile(InputDir):
