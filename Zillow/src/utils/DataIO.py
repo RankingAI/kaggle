@@ -10,10 +10,11 @@ class DataIO:
     def LoadFromHdfFile(InputDir, mode = 'train'):
 
         if(mode == 'train'):
-            data = pd.read_hdf(path_or_buf= '%s/train.hdf' % InputDir, key='test')
+            data = pd.read_hdf(path_or_buf= '%s/train.hdf' % InputDir, key='train')
+        elif(mode == 'valid'):
+            data = pd.read_hdf(path_or_buf= '%s/valid.hdf' % InputDir, key='valid')
         else:
             data = pd.read_hdf(path_or_buf= '%s/test.hdf' % InputDir, key='test')
-        #TestData = pd.read_hdf(path_or_buf= '%s/test.hdf' % InputDir, key='test')
 
         return data
 
@@ -84,12 +85,13 @@ class DataIO:
     @staticmethod
     def SaveToHdfFile(Data,OutputDir):
 
-        df_train,df_test = Data
+        df_train, df_valid, df_test = Data
 
         if(os.path.exists(OutputDir) == False):
             os.makedirs(OutputDir)
 
-        df_train.to_hdf(path_or_buf='%s/train.hdf' % OutputDir,key='test',mode = 'w',complib='blosc')
+        df_train.to_hdf(path_or_buf='%s/train.hdf' % OutputDir,key='train',mode = 'w',complib='blosc')
+        df_valid.to_hdf(path_or_buf='%s/valid.hdf' % OutputDir,key='valid',mode = 'w',complib='blosc')
         df_test.to_hdf(path_or_buf='%s/test.hdf' % OutputDir,key='test',mode = 'w',complib='blosc')
 
 

@@ -17,10 +17,10 @@ class SingleModel:
 
         print('Training begins ...')
         model.train()
-        print('Prediction begins ...')
-        model.predict()
-        print('Submmit begins ...')
-        model.submmit()
+        print('Evaluation begins ...')
+        model.evaluate()
+        print('Summit begins ...')
+        model.submit()
 
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))

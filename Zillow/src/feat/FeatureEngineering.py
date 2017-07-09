@@ -16,6 +16,7 @@ class Preprocessing:
 
     ## public member variables
     TrainData = pd.DataFrame()
+    ValidData = pd.DataFrame()
     TestData = pd.DataFrame()
 
     ## composite classes
@@ -36,7 +37,12 @@ class Preprocessing:
         else:
             self.TrainData, self.TestData = self._data.LoadFromTextFile(InputDir)
 
-        self.TestData = self.TestData.sample(frac = 1.0)
+        df_tmp = self.TrainData[self.TrainData['transactiondate'].dt.month > 6]
+        msk = np.random.rand(len(df_tmp)) < 0.25
+        self.ValidData = df_tmp[msk]
+        self.TrainData = pd.concat([self.TrainData[self.TrainData['transactiondate'].dt.month <= 6],df_tmp[~msk]],ignore_index= True)
+        self.TrainData = self.TrainData.reset_index(drop = True)
+        #self.TestData = self.TestData.sample(frac = 1.00)
 
     ## launch one task
     def __LaunchTask(self,task):
@@ -45,13 +51,13 @@ class Preprocessing:
         print('\n============== Begin to deal with %s' % (task))
 
         if (task == 'MissingValue'):
-            (self.TrainData,self.TestData) = self._missing.impute((self.TrainData,self.TestData))
+            self.TrainData,self.ValidData,self.TestData = self._missing.impute((self.TrainData,self.ValidData,self.TestData))
         elif (task == 'NewFeature'):
-            self.TrainData,self.TestData = self._newfeat.create((self.TrainData,self.TestData))
+            self.TrainData,self.ValidData,self.TestData = self._newfeat.create((self.TrainData,self.ValidData,self.TestData))
         elif (task == 'FeatureEncoding'):
-            self.TrainData,self.TestData = self._encoding.ordinal((self.TrainData,self.TestData))
+            self.TrainData,self.ValidData,self.TestData = self._encoding.ordinal((self.TrainData,self.ValidData,self.TestData))
         elif (task == 'FeatureSelection'):
-            self.TrainData,self.TestData = self._select.select((self.TrainData,self.TestData))
+            self.TrainData,self.ValidData,self.TestData = self._select.select((self.TrainData,self.ValidData,self.TestData))
 
         end = time.time()
         print('============= Task %s done, time consumed %ds' % (task, (end - start)))
@@ -62,16 +68,6 @@ class Preprocessing:
         start = time.time()
         for task in tasks:
             self.__LaunchTask(task)
-        #d = self.TestData
-        #print(d[(d['lastgap201610'] > 0) | (d['lastgap201611'] > 0)].head())
-        #print(d[[col for col in d.columns if 'monthyear' in col]].head())
-        #print(self.TrainData.columns)
-        #print('------------------------------')
-        #print(self.TestData.columns)
-        # print(self.TrainData.dtypes.value_counts())
-        # for col,dt in zip(self.TrainData.columns,self.TrainData.dtypes):
-        #     if(dt != np.int32):
-        #         print(col,dt)
-        DataIO.SaveToHdfFile((self.TrainData,self.TestData),self._OutputDir)
+        DataIO.SaveToHdfFile((self.TrainData,self.ValidData,self.TestData),self._OutputDir)
         end = time.time()
         print('\nAll tasks done, time consumed %ds' % (end - start))

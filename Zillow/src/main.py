@@ -27,4 +27,8 @@ if __name__ == '__main__':
     InputDir = '%s/SingleModel' % DataDir
     OutputDir = '%s/EnsembleModel' % DataDir
 
+    ## evaluation ensemble model
+    #em = EnsembleModel('%s/p1' % DataDir,OutputDir)
+    #em.EvaluateEnsembleModel(InputDir)
+    ## predict test data with ensemble model
     EnsembleModel.SimpleEnsemble(InputDir,OutputDir)

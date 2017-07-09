@@ -3,20 +3,107 @@ import numba
 import pandas as pd
 import numpy as np
 import os
+from model.ModelBase import  ModelBase
+import dill as pickle
+import xgboost
 
-class EnsembleModel:
+class EnsembleModel(ModelBase):
 
     @classmethod
     @numba.jit
-    def __ApplyEnsemble(cls,LgbCol, XgbCol, weight):
+    def __ApplyEnsemble(cls,LgbCol, XgbCol, w_lgb, w_bias):
 
         n = len(LgbCol)
         result = np.empty((n), dtype='float32')
         for i in range(n):
-            result[i] = weight * LgbCol[i] + (1.0 - weight) * XgbCol[i]
+            result[i] = (w_lgb * LgbCol[i] + (1.0 - w_lgb) * XgbCol[i]) * (1.0 - w_bias) + 0.011 * w_bias
+            #result[i] = (weight * (LgbCol[i]*0.93+0.012*0.07) + (1.0 - weight) * (XgbCol[i]*0.93+0.012*0.07)) * 0.93 + 0.012 * 0.07
 
         return result
 
+    ## evaluate ensemble model with local MAE
+    def EvaluateEnsembleModel(self,InputDir):
+        """"""
+        lgb_weight = 0.5
+        bias_weight = 0.03
+
+        start = time.time()
+
+        lgb_file = '%s/LGB_20170709-10:49:41.pkl' % InputDir
+        xgb_file = '%s/XGB_20170709-11:45:22.pkl' % InputDir
+
+        with open(lgb_file,'rb') as i_file:
+            lgb = pickle.load(i_file)
+        i_file.close()
+        print('Load lgb model done.')
+        with open(xgb_file,'rb') as i_file:
+            xgb = pickle.load(i_file)
+        i_file.close()
+        print('Load xgb model done.')
+
+        mean_logerror = np.mean(self.TrainData['logerror'])
+        print('Mean logerror %.4f' % mean_logerror)
+
+        x_train = self.TrainData.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        self._l_train_columns = x_train.columns
+
+        pred_ensemble = pd.DataFrame(index=self.ValidData.index)
+        pred_ensemble['parcelid'] = self.ValidData['parcelid']
+
+        pred_lgb = pd.DataFrame(index=self.ValidData.index)
+        pred_lgb['parcelid'] = self.ValidData['parcelid']
+
+        pred_xgb = pd.DataFrame(index=self.ValidData.index)
+        pred_xgb['parcelid'] = self.ValidData['parcelid']
+
+        truth_valid = pd.DataFrame(index=self.ValidData.index)
+        truth_valid['parcelid'] = self.ValidData['parcelid']
+
+        for d in self._l_valid_predict_columns:
+            l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
+            x_valid = self.ValidData[l_valid_columns]
+
+            ## for lgb
+            x_valid_lgb = x_valid.values.astype(np.float32, copy=False)
+            ## for xgb
+            x_valid.columns = ['lastgap' if('lastgap' in col) else 'monthyear' if('monthyear' in col) else 'buildingage' if('buildingage' in col) else col for col in x_valid.columns]
+            dvalid = xgboost.DMatrix(x_valid)
+            ## predict
+            pred_lgb_slice = lgb.predict(x_valid_lgb)
+            pred_xgb_slice = xgb.predict(dvalid)
+            ## ensemble
+            pred_lgb[d] = pred_lgb_slice
+            pred_xgb[d]= pred_xgb_slice
+            pred_ensemble[d] = (lgb_weight * pred_lgb_slice + (1.0 - lgb_weight) * pred_xgb_slice) * (1.0 - bias_weight) + 0.0110 * bias_weight
+
+            df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
+            truth_valid.loc[df_tmp.index,d] = df_tmp['logerror']
+
+        lgb_score = 0.0
+        lgb_ae = np.abs(pred_lgb - truth_valid)
+        for col in lgb_ae.columns:
+            lgb_score += np.sum(lgb_ae[col])
+        lgb_score /= len(pred_lgb)
+
+        xgb_score = 0.0
+        xgb_ae = np.abs(pred_xgb - truth_valid)
+        for col in xgb_ae.columns:
+            xgb_score += np.sum(xgb_ae[col])
+        xgb_score /= len(pred_xgb)
+
+        ensemble_score = 0.0
+        ensemble_ae = np.abs(pred_ensemble - truth_valid)
+        for col in ensemble_ae.columns:
+            ensemble_score += np.sum(ensemble_ae[col])
+        ensemble_score /= len(pred_ensemble)  ##!! divided by number of instances, not the number of 'cells'
+        print('============================= ')
+        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb).' % (ensemble_score,lgb_score,xgb_score))
+        print('=============================')
+
+        end = time.time()
+        print('time elapsed %ds' % (end - start))
+
+    ## predict for the test data with optimized ensemble model in LOCAL mode
     @classmethod
     def SimpleEnsemble(cls,InputDir,OutputDir):
 
@@ -26,8 +113,8 @@ class EnsembleModel:
         start = time.time()
 
         ## ensemble the best ones of lgb and xgb
-        lgb_result = pd.read_csv('%s/lgb_646244.csv' % InputDir)
-        xgb_result = pd.read_csv('%s/xgb_645968.csv' % InputDir)
+        lgb_result = pd.read_csv('%s/lgb_418.csv' % InputDir)
+        xgb_result = pd.read_csv('%s/xgb_418.csv' % InputDir)
 
         ensembled_result = pd.DataFrame(index=lgb_result.index)
         ensembled_result['ParcelId'] = lgb_result['ParcelId']
@@ -37,10 +124,12 @@ class EnsembleModel:
         xgb_result.set_index('ParcelId', inplace=True)
 
         ## determined by MAE value of public score
-        lgb_weight = 0.20
+        lgb_weight = 0.50
+        bias_weight = 0.01
+        up_threshold = 0.418
 
         for col in lgb_result.columns:
-            tmp = cls.__ApplyEnsemble(lgb_result[col].values, xgb_result[col].values, lgb_weight)
+            tmp = cls.__ApplyEnsemble(lgb_result[col].values, xgb_result[col].values, lgb_weight, bias_weight)
             df_tmp = pd.DataFrame(tmp, index=lgb_result.index, columns=[col])
             ensembled_result = pd.concat([ensembled_result, df_tmp], axis=1)
             print('Enssemble for column %s is done.' % col)
@@ -50,10 +139,10 @@ class EnsembleModel:
         print(lgb_result.head())
         print('Examples of xgb: ')
         print(xgb_result.head())
-        print('Examples of ensemble(lgb:xgb=%d:%d)' % (int(lgb_weight*100), int(100 - lgb_weight*100)))
+        print('Examples of ensemble(lgb:xgb=%d:%d), bias weight %.4f' % (int(lgb_weight*100), int(100 - lgb_weight*100),bias_weight))
         print(ensembled_result.head())
 
-        ensemble_sub = '%s/lgb_xgb_%d.csv' % (OutputDir,int(lgb_weight * 100))
+        ensemble_sub = '%s/lgb_xgb_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),int(lgb_weight * 100),int(bias_weight * 100))
         ensembled_result.to_csv(ensemble_sub, index=False, float_format='%.4f')
 
         end = time.time()
