@@ -26,6 +26,7 @@ class ModelBase(object):
 
     _l_test_predict_columns = ['201610', '201611', '201612', '201710', '201711', '201712']
     _l_valid_predict_columns = ['201607', '201608', '201609', '201610', '201611', '201612']
+    _l_selected_features = []
 
     _low = -0.4
     _up = 0.418

@@ -11,26 +11,31 @@ class EnsembleModel(ModelBase):
 
     @classmethod
     @numba.jit
-    def __ApplyEnsemble(cls,LgbCol, XgbCol, w_lgb, w_bias):
+    def __ApplyEnsemble(cls,LgbCol, XgbCol, RfCol, weights, bias, bias_weight):
 
         n = len(LgbCol)
         result = np.empty((n), dtype='float32')
         for i in range(n):
-            result[i] = (w_lgb * LgbCol[i] + (1.0 - w_lgb) * XgbCol[i]) * (1.0 - w_bias) + 0.011 * w_bias
-            #result[i] = (weight * (LgbCol[i]*0.93+0.012*0.07) + (1.0 - weight) * (XgbCol[i]*0.93+0.012*0.07)) * 0.93 + 0.012 * 0.07
+            result[i] = (weights['lgb'] * LgbCol[i] + weights['xgb'] * XgbCol[i] + weights['rf'] * RfCol[i]) * (1.0 - bias_weight) + bias * bias_weight
 
         return result
 
     ## evaluate ensemble model with local MAE
     def EvaluateEnsembleModel(self,InputDir):
         """"""
-        lgb_weight = 0.5
+        d_weight = {
+            'lgb': 0.6,
+            'xgb': 0.3,
+            'rf': 0.1
+        }
         bias_weight = 0.03
+        bias = 0.011
 
         start = time.time()
 
         lgb_file = '%s/LGB_20170709-10:49:41.pkl' % InputDir
         xgb_file = '%s/XGB_20170709-11:45:22.pkl' % InputDir
+        rf_file = '%s/RF_20170711-19:02:26.pkl' % InputDir
 
         with open(lgb_file,'rb') as i_file:
             lgb = pickle.load(i_file)
@@ -40,6 +45,10 @@ class EnsembleModel(ModelBase):
             xgb = pickle.load(i_file)
         i_file.close()
         print('Load xgb model done.')
+        with open(rf_file,'rb') as i_file:
+            rf = pickle.load(i_file)
+        i_file.close()
+        print('Load rf model done.')
 
         mean_logerror = np.mean(self.TrainData['logerror'])
         print('Mean logerror %.4f' % mean_logerror)
@@ -56,6 +65,9 @@ class EnsembleModel(ModelBase):
         pred_xgb = pd.DataFrame(index=self.ValidData.index)
         pred_xgb['parcelid'] = self.ValidData['parcelid']
 
+        pred_rf = pd.DataFrame(index=self.ValidData.index)
+        pred_rf['parcelid'] = self.ValidData['parcelid']
+
         truth_valid = pd.DataFrame(index=self.ValidData.index)
         truth_valid['parcelid'] = self.ValidData['parcelid']
 
@@ -64,20 +76,29 @@ class EnsembleModel(ModelBase):
             x_valid = self.ValidData[l_valid_columns]
 
             ## for lgb
-            x_valid_lgb = x_valid.values.astype(np.float32, copy=False)
+            x_valid_lgb_rf = x_valid.values.astype(np.float32, copy=False)
             ## for xgb
             x_valid.columns = ['lastgap' if('lastgap' in col) else 'monthyear' if('monthyear' in col) else 'buildingage' if('buildingage' in col) else col for col in x_valid.columns]
             dvalid = xgboost.DMatrix(x_valid)
             ## predict
-            pred_lgb_slice = lgb.predict(x_valid_lgb)
+            pred_rf_slice = rf.predict(x_valid_lgb_rf)
+            pred_lgb_slice = lgb.predict(x_valid_lgb_rf)
             pred_xgb_slice = xgb.predict(dvalid)
             ## ensemble
             pred_lgb[d] = pred_lgb_slice
             pred_xgb[d]= pred_xgb_slice
-            pred_ensemble[d] = (lgb_weight * pred_lgb_slice + (1.0 - lgb_weight) * pred_xgb_slice) * (1.0 - bias_weight) + 0.0110 * bias_weight
+            pred_rf[d] = pred_rf_slice #(1.0 - bias_weight ) * pred_rf_slice + bias_weight * bias
+            score = pred_lgb_slice * d_weight['lgb'] + pred_xgb_slice * d_weight['xgb'] + pred_rf_slice * d_weight['rf']
+            pred_ensemble[d] = (1.0 - bias_weight) * score + bias_weight * 0.011
 
             df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index,d] = df_tmp['logerror']
+
+        rf_score = 0.0
+        rf_ae = np.abs(pred_rf - truth_valid)
+        for col in rf_ae.columns:
+            rf_score += np.sum(rf_ae[col])
+        rf_score /= len(pred_rf)
 
         lgb_score = 0.0
         lgb_ae = np.abs(pred_lgb - truth_valid)
@@ -97,7 +118,7 @@ class EnsembleModel(ModelBase):
             ensemble_score += np.sum(ensemble_ae[col])
         ensemble_score /= len(pred_ensemble)  ##!! divided by number of instances, not the number of 'cells'
         print('============================= ')
-        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb).' % (ensemble_score,lgb_score,xgb_score))
+        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb), %.6f(rf).' % (ensemble_score,lgb_score,xgb_score,rf_score))
         print('=============================')
 
         end = time.time()
@@ -113,8 +134,9 @@ class EnsembleModel(ModelBase):
         start = time.time()
 
         ## ensemble the best ones of lgb and xgb
-        lgb_result = pd.read_csv('%s/lgb_418.csv' % InputDir)
-        xgb_result = pd.read_csv('%s/xgb_418.csv' % InputDir)
+        lgb_result = pd.read_csv('%s/lgb_418_bias.csv' % InputDir)
+        xgb_result = pd.read_csv('%s/xgb_418_bias.csv' % InputDir)  # parameter base_score equals the mean of target
+        rf_result = pd.read_csv('%s/rf_418.csv' % InputDir)
 
         ensembled_result = pd.DataFrame(index=lgb_result.index)
         ensembled_result['ParcelId'] = lgb_result['ParcelId']
@@ -122,14 +144,21 @@ class EnsembleModel(ModelBase):
         ensembled_result.set_index('ParcelId', inplace=True)
         lgb_result.set_index('ParcelId', inplace=True)
         xgb_result.set_index('ParcelId', inplace=True)
+        rf_result.set_index('ParcelId', inplace=True)
 
         ## determined by MAE value of public score
-        lgb_weight = 0.50
+        d_weight = {
+            'lgb': 0.6,
+            'xgb': 0.3,
+            'rf': 0.1
+        }
         bias_weight = 0.01
+        bias = 0.011
+
         up_threshold = 0.418
 
         for col in lgb_result.columns:
-            tmp = cls.__ApplyEnsemble(lgb_result[col].values, xgb_result[col].values, lgb_weight, bias_weight)
+            tmp = cls.__ApplyEnsemble(lgb_result[col].values, xgb_result[col].values, rf_result[col].values,d_weight, bias, bias_weight)
             df_tmp = pd.DataFrame(tmp, index=lgb_result.index, columns=[col])
             ensembled_result = pd.concat([ensembled_result, df_tmp], axis=1)
             print('Enssemble for column %s is done.' % col)
@@ -139,10 +168,18 @@ class EnsembleModel(ModelBase):
         print(lgb_result.head())
         print('Examples of xgb: ')
         print(xgb_result.head())
-        print('Examples of ensemble(lgb:xgb=%d:%d), bias weight %.4f' % (int(lgb_weight*100), int(100 - lgb_weight*100),bias_weight))
+        print('Examples of ensemble(lgb:xgb:rf=%d:%d:%d), bias weight %.4f' % (int(d_weight['lgb']*100),
+                                                                               int(d_weight['xgb']*100),
+                                                                               int(d_weight['rf'] * 100),
+                                                                               bias_weight)
+              )
         print(ensembled_result.head())
 
-        ensemble_sub = '%s/lgb_xgb_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),int(lgb_weight * 100),int(bias_weight * 100))
+        ensemble_sub = '%s/lgb_xgb_rf_%d_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),
+                                                          int(d_weight['lgb'] * 100),
+                                                          int(d_weight['xgb']* 100),
+                                                          int(d_weight['rf'])
+                                                          )
         ensembled_result.to_csv(ensemble_sub, index=False, float_format='%.4f')
 
         end = time.time()

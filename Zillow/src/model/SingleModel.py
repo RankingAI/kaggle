@@ -1,6 +1,7 @@
 import time
 from model.LightGBM import LGB
 from model.XGBoost import XGB
+from model.RandomForest import RF
 
 class SingleModel:
 
@@ -8,19 +9,22 @@ class SingleModel:
     def __LaunchTraining(task,InputDir,OutputDir):
 
         d_model = {'lgb': LGB,
-                   'xgb': XGB
+                   'xgb': XGB,
+                   'rf': RF
                    }
 
         start = time.time()
 
         model = d_model[task](InputDir,OutputDir)
 
+        #print('Selection begins ...')
+        #model.selection()
         print('Training begins ...')
         model.train()
         print('Evaluation begins ...')
         model.evaluate()
-        print('Summit begins ...')
-        model.submit()
+        # print('Summit begins ...')
+        # model.submit()
 
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))

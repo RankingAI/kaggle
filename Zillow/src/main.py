@@ -20,7 +20,7 @@ if __name__ == '__main__':
     ## single model
     # InputDir = '%s/p1' % DataDir
     # OutputDir = '%s/SingleModel' % DataDir
-    # strategies = ['xgb']
+    # strategies = ['rf']
     # SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model

@@ -11,6 +11,89 @@ from datetime import datetime
 
 class XGB(ModelBase):
 
+    ## compute MAE of single column
+    def ComputeMAE(self,y_pred,y_truth):
+        """"""
+        return np.sum(np.abs(y_pred - y_truth))/len(y_pred)
+
+    ## feature selection with importance
+    def selection(self):
+        """"""
+        # split data into train and valid sets
+        msk = np.random.rand(len(self.TrainData)) < 0.1
+        valid = self.TrainData[msk]
+        train = self.TrainData[~msk]
+        print('Length of train for selection is %d, while that of valid is %d' % (len(train),len(valid)))
+
+        print('Before truncating outliers(train), %d ' % len(train))
+        train = train[(train['logerror'] > self._low) & (train['logerror'] < self._up)]
+        print('After truncating outliers(train), %d' % len(train))
+
+        x_train = train.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        y_train = train['logerror']#.values.astype(np.float32)
+        x_valid = valid.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        y_valid = valid['logerror']#.values.astype(np.float32)
+        y_mean = np.mean(y_train)
+
+        #
+        params = {
+            'subsample': 0.80,
+            'objective': 'reg:linear',
+            'eval_metric': 'mae',
+            'base_score': y_mean,
+            'silent': 0,
+            'npthread': 4,
+            'lambda': 0.8,
+            'alpha': 0.3995
+        }
+        TreeNum = 120
+        params['eta'] = 0.04
+        params['max_depth'] = 10
+
+        # fit model on all training data
+        dtrain = xgboost.DMatrix(x_train,y_train)
+        model = xgboost.train(params,dtrain,num_boost_round= TreeNum)
+        print('Fitting is done ...')
+
+        # make predictions for test data and evaluate
+        dvalid = xgboost.DMatrix(x_valid)
+        y_pred = model.predict(dvalid)
+        mae = self.ComputeMAE(y_pred, y_valid)
+        print("MAE : %.6f" % mae)
+
+        # Fit model using each importance as a threshold
+        scores = model.get_score(importance_type='weight')
+        SortedFeats = sorted(scores.items(), key=lambda x: x[1], reverse= True)
+        thresholds = [0.1,0.2,0.3,0.4]
+
+        MinMAE = 100
+        BestThreshold = 0.0
+        for thresh in thresholds:
+            # select features using threshold
+            feats = [feat[0] for feat in SortedFeats[:int(len(SortedFeats)*thresh)]]
+            select_x_train = xgboost.DMatrix(x_train[feats],y_train)
+            # train model
+            params['max_depth'] = 6
+            params['eta'] = 0.02
+            selection_model = xgboost.train(params, select_x_train, num_boost_round= 60)
+            # eval model
+            select_x_valid = xgboost.DMatrix(x_valid[feats])
+            y_pred = selection_model.predict(select_x_valid)
+            mae = self.ComputeMAE(y_pred, y_valid)
+            print("Thresh=%.3f, n=%d, MAE: %.6f" % (thresh, x_train[feats].shape[1], mae))
+            if(mae < MinMAE):
+                MinMAE = mae
+                BestThreshold = thresh
+
+        self._l_selected_features = [feat[0] for feat in SortedFeats[:int(len(SortedFeats) * BestThreshold)]]
+
+        with open('%s/selected.dat' % self.OutputDir,'w') as o_file:
+            for col in self._l_selected_features:
+                o_file.write('%s\n' % col)
+        o_file.close()
+
+        return
+
     def train(self):
         """"""
         start = time.time()
@@ -21,7 +104,14 @@ class XGB(ModelBase):
 
         x_train = self.TrainData.drop(['logerror','parcelid','transactiondate'],axis= 1)
         y_train = self.TrainData['logerror'].values.astype(np.float32)
-        self._l_train_columns = x_train.columns
+        # Judge if feature selection has been done.
+        if(len(self._l_selected_features) == 0):
+            print('Full featureed ...')
+            self._l_train_columns = x_train.columns
+        else:
+            print('Selected featured ...')
+            self._l_train_columns = self._l_selected_features
+        x_train = x_train[self._l_train_columns]
 
         #x_valid = x_train.values.astype(np.float32, copy=False)
         y_mean = np.mean(y_train)

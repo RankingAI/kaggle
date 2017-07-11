@@ -9,8 +9,87 @@ import math
 from datetime import datetime
 import numba
 import dill as pickle
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.cross_validation import StratifiedKFold,cross_val_score
+from sklearn.grid_search import GridSearchCV
 
 class LGB(ModelBase):
+
+    def selection(self):
+        """"""
+        print('size before truncated outliers is %d ' % len(self.TrainData))
+        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        print('size after truncated outliers is %d ' % len(self.TrainData))
+
+        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        Y = self.TrainData['logerror']
+        self._l_train_columns = X.columns
+        nfolds = 5
+        FeatCols = list(self._l_train_columns)
+
+        # rfr = RandomForestRegressor(bootstrap=True, criterion='mse', max_depth=None,
+        #                   max_features= 40, max_leaf_nodes=None,
+        #                   min_samples_leaf= 20,
+        #                   min_samples_split= 100, min_weight_fraction_leaf=0.2,
+        #                   n_estimators= 10, n_jobs=1, oob_score=False, random_state=None,
+        #                   verbose=1, warm_start=False)
+
+        # BestTreeDepth = 0
+        # BestBaggingFeat = 0
+        # BestTreeNum = 0
+        # MinMeanMetrics = 1000
+        # for TreeNum in range(30, 33):
+        #     for TreeDepth in list(range(200, 201)):
+        #         # for BaggingFeat in range(int(math.sqrt(len(FeatCols))) - 2,int(math.sqrt(len(FeatCols))) + 3,1):
+        #         for BaggingFeat in [int(math.sqrt(len(FeatCols)))]:
+        #             KFold = StratifiedKFold(self.TrainData['logerror'], nfolds, shuffle=True, random_state=2017)
+        #             metrics = np.zeros((len(KFold)), dtype=float)
+        #             for fold, (tr, va) in enumerate(KFold, start=0):
+        #                 print(len(tr),len(va))
+        #                 TrainData = self.TrainData[self.TrainData.index.isin(tr)].copy()
+        #                 ValidData = self.TrainData[self.TrainData.index.isin(va)].copy()
+        #
+        #                 RF = RandomForestRegressor(random_state=2017 * (fold + 1),criterion= 'mse',
+        #                                             n_estimators=TreeNum, n_jobs= 2,
+        #                                             max_depth=TreeDepth,
+        #                                             max_features=BaggingFeat)
+        #                 RF.fit(TrainData[FeatCols], TrainData['logerror'])
+        #
+        #                 ValidData['predict'] = RF.predict(ValidData[FeatCols])
+        #                 #accuracy = 1.0 * len(ValidData[ValidData['predict'] == ValidData['y']]) / len(ValidData)
+        #                 mae = np.mean(np.abs(ValidData['predict'] - ValidData['logerror']))
+        #                 metrics[fold] = mae
+        #             MeanMetrics = np.mean(metrics)
+        #             print("TreeNum %d, TreeDepth %d, Mean mae %f" % (TreeNum, TreeDepth, MeanMetrics))
+        #             if (MeanMetrics < MinMeanMetrics):
+        #                 MinMeanMetrics = MeanMetrics
+        #                 BestTreeNum = TreeNum
+        #                 BestTreeDepth = TreeDepth
+        #                 BestBaggingFeat = BaggingFeat
+
+        RF = RandomForestRegressor(random_state=2017, criterion= 'mse',
+                                    n_estimators= 50, n_jobs= 2,
+                                    max_depth= 200,
+                                    max_features= int(math.sqrt(len(FeatCols))))
+
+        self._model = RF.fit(X,Y)
+        importances = RF.feature_importances_
+        #std = np.std([tree.feature_importances_ for tree in RF.estimators_],axis=0)
+        self._l_selected_features = [FeatCols[i] for i in np.argsort(importances)[:50]]
+        #self._model = RF.fit(X[self._l_train_columns],Y)
+        #print(self._l_train_columns)
+
+    def retrain(self):
+
+        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        Y = self.TrainData['logerror']
+
+        RF = RandomForestRegressor(random_state=2017, criterion= 'mse',
+                                    n_estimators= 50, n_jobs= 2,
+                                    max_depth= 200,
+                                    max_features= int(math.sqrt(len(self._l_selected_features))))
+        self._model = RF.fit(X[self._l_selected_features],Y)
+        self._l_train_columns = self._l_selected_features
 
     ## rewritten method
     def train(self):
@@ -23,7 +102,9 @@ class LGB(ModelBase):
 
         X = self.TrainData.drop(['logerror','parcelid','transactiondate'],axis= 1)
         Y = self.TrainData['logerror']
-        self._l_train_columns = X.columns
+        ## features not been selected yet
+        if(len(self._l_selected_features) == 0):
+            self._l_train_columns = X.columns
 
         X = X.values.astype(np.float32, copy=False)
         d_cv = lightgbm.Dataset(X,label=Y)
@@ -108,7 +189,7 @@ class LGB(ModelBase):
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
             x_valid = self.ValidData[l_valid_columns]
             x_valid = x_valid.values.astype(np.float32, copy=False)
-            pred_valid[d] = self._model.predict(x_valid)# * 0.97 + 0.011 * 0.03
+            pred_valid[d] = self._model.predict(x_valid) * 0.99 + 0.011 * 0.01
             df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index,d] = df_tmp['logerror']
 
@@ -123,8 +204,8 @@ class LGB(ModelBase):
 
         end = time.time()
 
-        del self.ValidData
-        gc.collect()
+        #del self.ValidData
+        #gc.collect()
 
         print('time elapsed %ds' % (end - start))
 
@@ -195,7 +276,7 @@ class LGB(ModelBase):
             for idx in range(0, len(x_test), N):
                 x_test_block = x_test[idx:idx + N].values.astype(np.float32, copy=False)
                 self._model.reset_parameter({"num_threads": 4})
-                ret = self._model.predict(x_test_block)# * 0.93 + 0.012 * 0.07
+                ret = self._model.predict(x_test_block) * 0.99 + 0.011 * 0.01
                 self._sub.loc[x_test[idx:idx + N].index, d] = ret
                 print(np.mean(np.abs(ret)))
 
