@@ -2,6 +2,7 @@ import time
 from model.LightGBM import LGB
 from model.XGBoost import XGB
 from model.RandomForest import RF
+from model.ElasticNet import EN
 
 class SingleModel:
 
@@ -10,7 +11,8 @@ class SingleModel:
 
         d_model = {'lgb': LGB,
                    'xgb': XGB,
-                   'rf': RF
+                   'rf': RF,
+                   'en': EN
                    }
 
         start = time.time()
@@ -19,12 +21,12 @@ class SingleModel:
 
         #print('Selection begins ...')
         #model.selection()
-        print('Training begins ...')
+        print('Training %s begins ...' % task)
         model.train()
-        print('Evaluation begins ...')
+        print('Evaluation %s begins ...' % task)
         model.evaluate()
-        # print('Summit begins ...')
-        # model.submit()
+        print('Summit %s begins ...' % task)
+        model.submit()
 
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))

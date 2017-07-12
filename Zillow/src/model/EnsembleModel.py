@@ -11,12 +11,15 @@ class EnsembleModel(ModelBase):
 
     @classmethod
     @numba.jit
-    def __ApplyEnsemble(cls,LgbCol, XgbCol, RfCol, weights, bias, bias_weight):
+    def __ApplyEnsemble(cls,LgbCol, XgbCol, RfCol, EnCol, weights, bias, bias_weight):
 
         n = len(LgbCol)
         result = np.empty((n), dtype='float32')
         for i in range(n):
-            result[i] = (weights['lgb'] * LgbCol[i] + weights['xgb'] * XgbCol[i] + weights['rf'] * RfCol[i]) * (1.0 - bias_weight) + bias * bias_weight
+            result[i] = (weights['lgb'] * LgbCol[i] +
+                         weights['xgb'] * XgbCol[i] +
+                         weights['rf'] * RfCol[i] +
+                         weights['en'] * EnCol[i]) * (1.0 - bias_weight) + bias * bias_weight
 
         return result
 
@@ -24,11 +27,12 @@ class EnsembleModel(ModelBase):
     def EvaluateEnsembleModel(self,InputDir):
         """"""
         d_weight = {
-            'lgb': 0.6,
-            'xgb': 0.3,
-            'rf': 0.1
+            'lgb': 0.4,
+            'xgb': 0.2,
+            'rf': 0.2,
+            'en': 0.2
         }
-        bias_weight = 0.03
+        bias_weight = 0.01
         bias = 0.011
 
         start = time.time()
@@ -36,6 +40,7 @@ class EnsembleModel(ModelBase):
         lgb_file = '%s/LGB_20170709-10:49:41.pkl' % InputDir
         xgb_file = '%s/XGB_20170709-11:45:22.pkl' % InputDir
         rf_file = '%s/RF_20170711-19:02:26.pkl' % InputDir
+        en_file = '%s/EN_20170712-17:33:36.pkl' % InputDir
 
         with open(lgb_file,'rb') as i_file:
             lgb = pickle.load(i_file)
@@ -49,6 +54,10 @@ class EnsembleModel(ModelBase):
             rf = pickle.load(i_file)
         i_file.close()
         print('Load rf model done.')
+        with open(en_file,'rb') as i_file:
+            en = pickle.load(i_file)
+        i_file.close()
+        print('Load en model done.')
 
         mean_logerror = np.mean(self.TrainData['logerror'])
         print('Mean logerror %.4f' % mean_logerror)
@@ -68,6 +77,9 @@ class EnsembleModel(ModelBase):
         pred_rf = pd.DataFrame(index=self.ValidData.index)
         pred_rf['parcelid'] = self.ValidData['parcelid']
 
+        pred_en = pd.DataFrame(index=self.ValidData.index)
+        pred_en['parcelid'] = self.ValidData['parcelid']
+
         truth_valid = pd.DataFrame(index=self.ValidData.index)
         truth_valid['parcelid'] = self.ValidData['parcelid']
 
@@ -76,29 +88,27 @@ class EnsembleModel(ModelBase):
             x_valid = self.ValidData[l_valid_columns]
 
             ## for lgb
-            x_valid_lgb_rf = x_valid.values.astype(np.float32, copy=False)
+            x_valid_common = x_valid.values.astype(np.float32, copy=False)
             ## for xgb
             x_valid.columns = ['lastgap' if('lastgap' in col) else 'monthyear' if('monthyear' in col) else 'buildingage' if('buildingage' in col) else col for col in x_valid.columns]
             dvalid = xgboost.DMatrix(x_valid)
             ## predict
-            pred_rf_slice = rf.predict(x_valid_lgb_rf)
-            pred_lgb_slice = lgb.predict(x_valid_lgb_rf)
+            pred_lgb_slice = lgb.predict(x_valid_common)
             pred_xgb_slice = xgb.predict(dvalid)
+            pred_rf_slice = rf.predict(x_valid_common)
+            pred_en_slice = en.predict(x_valid_common)
             ## ensemble
             pred_lgb[d] = pred_lgb_slice
             pred_xgb[d]= pred_xgb_slice
-            pred_rf[d] = pred_rf_slice #(1.0 - bias_weight ) * pred_rf_slice + bias_weight * bias
-            score = pred_lgb_slice * d_weight['lgb'] + pred_xgb_slice * d_weight['xgb'] + pred_rf_slice * d_weight['rf']
-            pred_ensemble[d] = (1.0 - bias_weight) * score + bias_weight * 0.011
+            pred_rf[d] = pred_rf_slice #* (1.0 - bias_weight ) + bias_weight * bias
+            pred_en[d] = pred_en_slice #* (1.0 - bias_weight ) + bias_weight * bias
+            score = pred_lgb_slice * d_weight['lgb'] + pred_xgb_slice * d_weight['xgb'] + pred_rf_slice * d_weight['rf'] + pred_en_slice * d_weight['en']
+            #score = pred_lgb_slice * d_weight['lgb'] + pred_rf_slice * d_weight['rf'] + pred_en_slice * d_weight['en']
+            pred_ensemble[d] = (1.0 - bias_weight) * score + bias_weight * bias
 
             df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index,d] = df_tmp['logerror']
 
-        rf_score = 0.0
-        rf_ae = np.abs(pred_rf - truth_valid)
-        for col in rf_ae.columns:
-            rf_score += np.sum(rf_ae[col])
-        rf_score /= len(pred_rf)
 
         lgb_score = 0.0
         lgb_ae = np.abs(pred_lgb - truth_valid)
@@ -112,13 +122,25 @@ class EnsembleModel(ModelBase):
             xgb_score += np.sum(xgb_ae[col])
         xgb_score /= len(pred_xgb)
 
+        rf_score = 0.0
+        rf_ae = np.abs(pred_rf - truth_valid)
+        for col in rf_ae.columns:
+            rf_score += np.sum(rf_ae[col])
+        rf_score /= len(pred_rf)
+
+        en_score = 0.0
+        en_ae = np.abs(pred_en - truth_valid)
+        for col in en_ae.columns:
+            en_score += np.sum(en_ae[col])
+        en_score /= len(pred_en)
+
         ensemble_score = 0.0
         ensemble_ae = np.abs(pred_ensemble - truth_valid)
         for col in ensemble_ae.columns:
             ensemble_score += np.sum(ensemble_ae[col])
         ensemble_score /= len(pred_ensemble)  ##!! divided by number of instances, not the number of 'cells'
         print('============================= ')
-        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb), %.6f(rf).' % (ensemble_score,lgb_score,xgb_score,rf_score))
+        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb), %.6f(rf), %.6f(en).' % (ensemble_score, lgb_score, xgb_score, rf_score, en_score))
         print('=============================')
 
         end = time.time()
@@ -137,6 +159,7 @@ class EnsembleModel(ModelBase):
         lgb_result = pd.read_csv('%s/lgb_418_bias.csv' % InputDir)
         xgb_result = pd.read_csv('%s/xgb_418_bias.csv' % InputDir)  # parameter base_score equals the mean of target
         rf_result = pd.read_csv('%s/rf_418.csv' % InputDir)
+        en_result = pd.read_csv('%s/en_418.csv' % InputDir)
 
         ensembled_result = pd.DataFrame(index=lgb_result.index)
         ensembled_result['ParcelId'] = lgb_result['ParcelId']
@@ -145,12 +168,14 @@ class EnsembleModel(ModelBase):
         lgb_result.set_index('ParcelId', inplace=True)
         xgb_result.set_index('ParcelId', inplace=True)
         rf_result.set_index('ParcelId', inplace=True)
+        en_result.set_index('ParcelId', inplace=True)
 
         ## determined by MAE value of public score
         d_weight = {
-            'lgb': 0.6,
-            'xgb': 0.3,
-            'rf': 0.1
+            'lgb': 0.4,
+            'xgb': 0.2,
+            'rf': 0.2,
+            'en': 0.2
         }
         bias_weight = 0.01
         bias = 0.011
@@ -158,7 +183,11 @@ class EnsembleModel(ModelBase):
         up_threshold = 0.418
 
         for col in lgb_result.columns:
-            tmp = cls.__ApplyEnsemble(lgb_result[col].values, xgb_result[col].values, rf_result[col].values,d_weight, bias, bias_weight)
+            tmp = cls.__ApplyEnsemble(lgb_result[col].values,
+                                      xgb_result[col].values,
+                                      rf_result[col].values,
+                                      en_result[col].values,
+                                      d_weight, bias, bias_weight)
             df_tmp = pd.DataFrame(tmp, index=lgb_result.index, columns=[col])
             ensembled_result = pd.concat([ensembled_result, df_tmp], axis=1)
             print('Enssemble for column %s is done.' % col)
@@ -168,17 +197,19 @@ class EnsembleModel(ModelBase):
         print(lgb_result.head())
         print('Examples of xgb: ')
         print(xgb_result.head())
-        print('Examples of ensemble(lgb:xgb:rf=%d:%d:%d), bias weight %.4f' % (int(d_weight['lgb']*100),
+        print('Examples of ensemble(lgb:xgb:rf:en=%d:%d:%d:%d), bias weight %.4f' % (int(d_weight['lgb']*100),
                                                                                int(d_weight['xgb']*100),
                                                                                int(d_weight['rf'] * 100),
+                                                                               int(d_weight['en'] * 100),
                                                                                bias_weight)
               )
         print(ensembled_result.head())
 
-        ensemble_sub = '%s/lgb_xgb_rf_%d_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),
+        ensemble_sub = '%s/lgb_xgb_rf_en_%d_%d_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),
                                                           int(d_weight['lgb'] * 100),
-                                                          int(d_weight['xgb']* 100),
-                                                          int(d_weight['rf'])
+                                                          int(d_weight['xgb'] * 100),
+                                                          int(d_weight['rf'] * 100),
+                                                          int(d_weight['en'] * 100)
                                                           )
         ensembled_result.to_csv(ensemble_sub, index=False, float_format='%.4f')
 

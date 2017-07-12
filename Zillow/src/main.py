@@ -20,7 +20,7 @@ if __name__ == '__main__':
     ## single model
     # InputDir = '%s/p1' % DataDir
     # OutputDir = '%s/SingleModel' % DataDir
-    # strategies = ['rf']
+    # strategies = ['en']
     # SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     OutputDir = '%s/EnsembleModel' % DataDir
 
     ## evaluation ensemble model
-    #em = EnsembleModel('%s/p1' % DataDir,OutputDir)
-    #em.EvaluateEnsembleModel(InputDir)
+    em = EnsembleModel('%s/p1' % DataDir,OutputDir)
+    em.EvaluateEnsembleModel(InputDir)
     ## predict test data with ensemble model
-    EnsembleModel.SimpleEnsemble(InputDir,OutputDir)
+    #EnsembleModel.SimpleEnsemble(InputDir,OutputDir)
