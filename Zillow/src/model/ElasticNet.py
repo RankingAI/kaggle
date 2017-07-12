@@ -16,8 +16,7 @@ class EN(ModelBase):
       start = time.time()
 
       print('size before truncated outliers is %d ' % len(self.TrainData))
-      self.TrainData = self.TrainData[
-         (self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+      self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
       print('size after truncated outliers is %d ' % len(self.TrainData))
 
       X = self.TrainData.drop(['logerror','parcelid', 'transactiondate'], axis=1)
@@ -26,10 +25,12 @@ class EN(ModelBase):
       self._l_train_columns = X.columns
       X = X.values.astype(np.float32, copy=False)
 
-      al = 0.1
+      al = 0.001
       ratio = 0.1
+      iter = 1000
+      sel = 'random'
 
-      en = ElasticNet(alpha= 0.1, l1_ratio = 0.1, max_iter= 800, tol= 1e-4, selection= 'random', random_state= 2017)
+      en = ElasticNet(alpha= al, l1_ratio = ratio, max_iter= iter, tol= 1e-4, selection= sel, random_state= 2017)
       self._model = en.fit(X, Y)
       end = time.time()
 
@@ -135,10 +136,12 @@ class EN(ModelBase):
 
       X = X.values.astype(np.float32, copy=False)
 
-      al = 0.1
+      al = 0.001
       ratio = 0.1
+      iter = 1000
+      sel = 'random'
 
-      en = ElasticNet(alpha= 0.1, l1_ratio = 0.1, max_iter= 800, tol= 1e-4, selection= 'random', random_state= 2017)
+      en = ElasticNet(alpha= al, l1_ratio = ratio, max_iter= iter, tol= 1e-4, selection= sel, random_state= 2017)
       self._model = en.fit(X, Y)
 
       del self.TrainData, X, Y

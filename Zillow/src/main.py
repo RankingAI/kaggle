@@ -18,17 +18,17 @@ if __name__ == '__main__':
     # process.run(tasks)
 
     ## single model
-    # InputDir = '%s/p1' % DataDir
-    # OutputDir = '%s/SingleModel' % DataDir
-    # strategies = ['en']
-    # SingleModel.run(strategies,InputDir,OutputDir)
+    #InputDir = '%s/p1' % DataDir
+    #OutputDir = '%s/SingleModel' % DataDir
+    #strategies = ['en']
+    #SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model
     InputDir = '%s/SingleModel' % DataDir
     OutputDir = '%s/EnsembleModel' % DataDir
 
     ## evaluation ensemble model
-    em = EnsembleModel('%s/p1' % DataDir,OutputDir)
-    em.EvaluateEnsembleModel(InputDir)
+    #em = EnsembleModel('%s/p1' % DataDir,OutputDir)
+    #em.EvaluateEnsembleModel(InputDir)
     ## predict test data with ensemble model
-    #EnsembleModel.SimpleEnsemble(InputDir,OutputDir)
+    EnsembleModel.SimpleEnsemble(InputDir,OutputDir)

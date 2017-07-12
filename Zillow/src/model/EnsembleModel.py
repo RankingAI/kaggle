@@ -40,7 +40,7 @@ class EnsembleModel(ModelBase):
         lgb_file = '%s/LGB_20170709-10:49:41.pkl' % InputDir
         xgb_file = '%s/XGB_20170709-11:45:22.pkl' % InputDir
         rf_file = '%s/RF_20170711-19:02:26.pkl' % InputDir
-        en_file = '%s/EN_20170712-17:33:36.pkl' % InputDir
+        en_file = '%s/EN_20170712-22:55:53.pkl' % InputDir
 
         with open(lgb_file,'rb') as i_file:
             lgb = pickle.load(i_file)
@@ -159,7 +159,7 @@ class EnsembleModel(ModelBase):
         lgb_result = pd.read_csv('%s/lgb_418_bias.csv' % InputDir)
         xgb_result = pd.read_csv('%s/xgb_418_bias.csv' % InputDir)  # parameter base_score equals the mean of target
         rf_result = pd.read_csv('%s/rf_418.csv' % InputDir)
-        en_result = pd.read_csv('%s/en_418.csv' % InputDir)
+        en_result = pd.read_csv('%s/en_418_alpha_optimized.csv' % InputDir)
 
         ensembled_result = pd.DataFrame(index=lgb_result.index)
         ensembled_result['ParcelId'] = lgb_result['ParcelId']
@@ -205,7 +205,7 @@ class EnsembleModel(ModelBase):
               )
         print(ensembled_result.head())
 
-        ensemble_sub = '%s/lgb_xgb_rf_en_%d_%d_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),
+        ensemble_sub = '%s/lgb_xgb_rf_en_alpha_optimized_%d_%d_%d_%d_%d.csv' % (OutputDir,int(up_threshold * 1000),
                                                           int(d_weight['lgb'] * 100),
                                                           int(d_weight['xgb'] * 100),
                                                           int(d_weight['rf'] * 100),
