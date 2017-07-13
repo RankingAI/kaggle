@@ -12,8 +12,27 @@ import dill as pickle
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.cross_validation import StratifiedKFold,cross_val_score
 from sklearn.grid_search import GridSearchCV
+import sys
 
 class LGB(ModelBase):
+
+    _params = {
+        'max_bin': 8,
+        'boosting_type': 'gbdt',
+        'objective': 'regression',
+        'metric': 'mae',
+        'sub_feature': 0.8,
+        'bagging_fraction':  0.85,
+        'num_leaves': 128,
+        'min_data':  300,
+        'min_hessian':  0.01,
+        'learning_rate': 0.02,
+        'bagging_freq': 20
+    }
+
+    _iter = 120
+
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
 
     def selection(self):
         """"""
@@ -21,7 +40,7 @@ class LGB(ModelBase):
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
         print('size after truncated outliers is %d ' % len(self.TrainData))
 
-        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror']
         self._l_train_columns = X.columns
         nfolds = 5
@@ -81,7 +100,7 @@ class LGB(ModelBase):
 
     def retrain(self):
 
-        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror']
 
         RF = RandomForestRegressor(random_state=2017, criterion= 'mse',
@@ -100,11 +119,13 @@ class LGB(ModelBase):
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
         print('size after truncated outliers is %d ' % len(self.TrainData))
 
-        X = self.TrainData.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        X = self.TrainData.drop(self._l_drop_cols,axis= 1)
         Y = self.TrainData['logerror']
         ## features not been selected yet
         if(len(self._l_selected_features) == 0):
             self._l_train_columns = X.columns
+        else:
+            self._l_train_columns = self._l_selected_features
 
         X = X.values.astype(np.float32, copy=False)
         d_cv = lightgbm.Dataset(X,label=Y)
@@ -129,17 +150,6 @@ class LGB(ModelBase):
         # params['bagging_freq'] = 20
         # self._model = lightgbm.train(params,d_train,100,verbose_eval= True,valid_sets=[d_valid])
 
-        params = {}
-        params['max_bin'] = 8
-        params['boosting_type'] = 'gbdt'
-        params['objective'] = 'regression'
-        params['metric'] = 'mae'
-        params['sub_feature'] = 0.8
-        params['bagging_fraction'] = 0.85  # sub_row
-        params['num_leaves'] = 128
-        params['min_data'] = 300
-        params['min_hessian'] = 0.01
-
         ## cv mode for parameter tuning
         # l_learning_rate = [0.014 + 0.002*i for i in range(5)]
         # l_bagging_freq = [10 + i*10 for i in range(5)]
@@ -160,9 +170,7 @@ class LGB(ModelBase):
         # params['learning_rate'] = BestParams['learning_rate']
         # params['bagging_freq'] = BestParams['bagging_freq']
 
-        params['learning_rate'] = 0.02
-        params['bagging_freq'] = 20
-        self._model = lightgbm.train(params,d_cv,100,verbose_eval= True)
+        self._model = lightgbm.train(self._params, d_cv, self._iter, verbose_eval= True)
 
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,datetime.now().strftime('%Y%m%d-%H:%M:%S'))
         with open(self._f_eval_train_model,'wb') as o_file:
@@ -236,30 +244,19 @@ class LGB(ModelBase):
         ## retrain with the whole training data
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
-        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror']
 
         X = X.values.astype(np.float32, copy=False)
         d_train = lightgbm.Dataset(X, label=Y)
 
-        params = {}
-        params['max_bin'] = 8
-        params['boosting_type'] = 'gbdt'
-        params['objective'] = 'regression'
-        params['metric'] = 'mae'
-        params['sub_feature'] = 0.8
-        params['bagging_fraction'] = 0.85  # sub_row
-        params['num_leaves'] = 128
-        params['min_data'] = 300
-        params['min_hessian'] = 0.01
-        params['learning_rate'] = 0.02
-        params['bagging_freq'] = 20
-        self._model = lightgbm.train(params, d_train, 100, verbose_eval=True)
+        self._model = lightgbm.train(self._params, d_train, self._iter, verbose_eval=True)
 
         del self.TrainData, X, Y, d_train
         gc.collect()
 
         self.TestData = self._data.LoadFromHdfFile(self.InputDir,'test')
+        #self.TestData = self.TestData.sample(frac = 0.01)
 
         self._sub = pd.DataFrame(index = self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']

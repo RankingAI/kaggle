@@ -37,11 +37,14 @@ class Preprocessing:
         else:
             self.TrainData, self.TestData = self._data.LoadFromTextFile(InputDir)
 
+        self.TrainData = self.TrainData.reset_index() ## additional columns 'index' will be newed
+
         df_tmp = self.TrainData[self.TrainData['transactiondate'].dt.month > 6]
+        np.random.seed(2017)
         msk = np.random.rand(len(df_tmp)) < 0.25
         self.ValidData = df_tmp[msk]
         self.TrainData = pd.concat([self.TrainData[self.TrainData['transactiondate'].dt.month <= 6],df_tmp[~msk]],ignore_index= True)
-        self.TrainData = self.TrainData.reset_index(drop = True)
+        #self.TrainData = self.TrainData.reset_index(drop = True)
         #self.TestData = self.TestData.sample(frac = 1.00)
 
     ## launch one task

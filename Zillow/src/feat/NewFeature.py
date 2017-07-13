@@ -23,7 +23,23 @@ class NewFeature:
         data = cls.__BuildingAge(data)
         print('buildingage was added')
 
+        ##
+        data = cls.__NullCount(data)
+        print('nullcount was added')
+
         return data
+
+    @classmethod
+    def __NullCount(cls,data):
+        """"""
+        df_train, df_valid, df_test = data
+
+        ##
+        df_train["nullcount"] = df_train.isnull().sum(axis=1)
+        df_valid["nullcount"] = df_valid.isnull().sum(axis=1)
+        df_test["nullcount"] = df_test.isnull().sum(axis=1)
+
+        return (df_train, df_valid, df_test)
 
     @classmethod
     def __BuildingAge(cls,data):

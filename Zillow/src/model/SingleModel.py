@@ -3,6 +3,7 @@ from model.LightGBM import LGB
 from model.XGBoost import XGB
 from model.RandomForest import RF
 from model.ElasticNet import EN
+from model.GradientBoostingRegressor import GBR
 
 class SingleModel:
 
@@ -12,7 +13,8 @@ class SingleModel:
         d_model = {'lgb': LGB,
                    'xgb': XGB,
                    'rf': RF,
-                   'en': EN
+                   'en': EN,
+                   'gbr': GBR
                    }
 
         start = time.time()

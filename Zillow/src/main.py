@@ -13,22 +13,23 @@ if __name__ == '__main__':
     ## process
     # InputDir = '%s/p0' % DataDir
     # OutputDir = '%s/p1' % DataDir
+    # OutputDir = '%s/p2' % DataDir ## add null_count feature
     # tasks = ['NewFeature','FeatureSelection','FeatureEncoding','MissingValue']
     # process = Preprocessing(InputDir,OutputDir,Mode= 'pkl')
     # process.run(tasks)
 
     ## single model
-    #InputDir = '%s/p1' % DataDir
-    #OutputDir = '%s/SingleModel' % DataDir
-    #strategies = ['en']
+    #InputDir = '%s/p2' % DataDir
+    #OutputDir = '%s/SingleModel2' % DataDir
+    #strategies = ['gbr']
     #SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model
-    InputDir = '%s/SingleModel' % DataDir
-    OutputDir = '%s/EnsembleModel' % DataDir
+    InputDir = '%s/SingleModel2' % DataDir
+    OutputDir = '%s/EnsembleModel2' % DataDir
 
     ## evaluation ensemble model
-    #em = EnsembleModel('%s/p1' % DataDir,OutputDir)
+    em = EnsembleModel('%s/p2' % DataDir,OutputDir)
     #em.EvaluateEnsembleModel(InputDir)
-    ## predict test data with ensemble model
-    EnsembleModel.SimpleEnsemble(InputDir,OutputDir)
+    # predict test data with ensemble model
+    em.SimpleEnsemble(InputDir,OutputDir)

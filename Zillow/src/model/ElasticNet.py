@@ -10,6 +10,13 @@ from sklearn.cross_validation import StratifiedKFold,cross_val_score
 import gc
 
 class EN(ModelBase):
+
+   _l_drop_cols = ['logerror', 'parcelid', 'transactiondate', 'index', 'nullcount']
+   _alpha = 0.001
+   _ratio = 0.1
+   _iter = 1000
+   _sel = 'random'
+
    """"""
    def train(self):
       """"""
@@ -19,18 +26,12 @@ class EN(ModelBase):
       self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
       print('size after truncated outliers is %d ' % len(self.TrainData))
 
-      X = self.TrainData.drop(['logerror','parcelid', 'transactiondate'], axis=1)
+      X = self.TrainData.drop(self._l_drop_cols, axis=1)
       Y = self.TrainData['logerror']
-
       self._l_train_columns = X.columns
       X = X.values.astype(np.float32, copy=False)
 
-      al = 0.001
-      ratio = 0.1
-      iter = 1000
-      sel = 'random'
-
-      en = ElasticNet(alpha= al, l1_ratio = ratio, max_iter= iter, tol= 1e-4, selection= sel, random_state= 2017)
+      en = ElasticNet(alpha= self._alpha, l1_ratio= self._ratio, max_iter= self._iter, tol= 1e-4, selection= self._sel, random_state= 2017)
       self._model = en.fit(X, Y)
       end = time.time()
 
@@ -120,34 +121,28 @@ class EN(ModelBase):
 
       end = time.time()
 
-      # del self.ValidData
-      # gc.collect()
+      del self.ValidData
+      gc.collect()
 
       print('time elapsed %ds' % (end - start))
 
    def submit(self):
       """"""
       ## retrain with the whole training data
-      self.TrainData = self.TrainData[
-         (self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+      self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
-      X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+      X = self.TrainData.drop(self._l_drop_cols, axis=1)
       Y = self.TrainData['logerror']
-
       X = X.values.astype(np.float32, copy=False)
 
-      al = 0.001
-      ratio = 0.1
-      iter = 1000
-      sel = 'random'
-
-      en = ElasticNet(alpha= al, l1_ratio = ratio, max_iter= iter, tol= 1e-4, selection= sel, random_state= 2017)
+      en = ElasticNet(alpha= self._alpha, l1_ratio = self._ratio, max_iter= self._iter, tol= 1e-4, selection= self._sel, random_state= 2017)
       self._model = en.fit(X, Y)
 
       del self.TrainData, X, Y
       gc.collect()
 
       self.TestData = self._data.LoadFromHdfFile(self.InputDir, 'test')
+      #self.TestData = self.TestData.sample(frac = 0.01)
 
       self._sub = pd.DataFrame(index=self.TestData.index)
       self._sub['ParcelId'] = self.TestData['parcelid']

@@ -8,8 +8,26 @@ import time
 import dill as pickle
 import os
 from datetime import datetime
+import sys
 
 class XGB(ModelBase):
+
+    _params = {
+        'subsample': 0.80,
+        'objective': 'reg:linear',
+        'eval_metric': 'mae',
+        'base_score': 0.011,
+        'silent': 0,
+        'npthread': 4,
+        'lambda': 0.8,
+        'alpha': 0.3995,
+        'eta': 0.04,
+        'max_depth': 10
+    }
+
+    _iter = 100
+
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
 
     ## compute MAE of single column
     def ComputeMAE(self,y_pred,y_truth):
@@ -29,9 +47,9 @@ class XGB(ModelBase):
         train = train[(train['logerror'] > self._low) & (train['logerror'] < self._up)]
         print('After truncating outliers(train), %d' % len(train))
 
-        x_train = train.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        x_train = train.drop(self._l_drop_cols,axis= 1)
         y_train = train['logerror']#.values.astype(np.float32)
-        x_valid = valid.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        x_valid = valid.drop(self._l_drop_cols, axis = 1)
         y_valid = valid['logerror']#.values.astype(np.float32)
         y_mean = np.mean(y_train)
 
@@ -102,31 +120,18 @@ class XGB(ModelBase):
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
         print(len(self.TrainData))
 
-        x_train = self.TrainData.drop(['logerror','parcelid','transactiondate'],axis= 1)
+        x_train = self.TrainData.drop(self._l_drop_cols, axis= 1)
         y_train = self.TrainData['logerror'].values.astype(np.float32)
         # Judge if feature selection has been done.
         if(len(self._l_selected_features) == 0):
-            print('Full featureed ...')
+            print('Full featured ...')
             self._l_train_columns = x_train.columns
         else:
             print('Selected featured ...')
             self._l_train_columns = self._l_selected_features
-        x_train = x_train[self._l_train_columns]
 
-        #x_valid = x_train.values.astype(np.float32, copy=False)
-        y_mean = np.mean(y_train)
-
+        self._params['base_score'] = np.mean(y_train)
         dtrain = xgboost.DMatrix(x_train, y_train)
-        params = {
-            'subsample': 0.80,
-            'objective': 'reg:linear',
-            'eval_metric': 'mae',
-            'base_score': y_mean,
-            'silent': 0,
-            'npthread': 4,
-            'lambda': 0.8,
-            'alpha': 0.3995
-        }
 
         ## parameter tuning with CV
         # BestParams = {'eta':0.0,'max_depth':0}
@@ -152,12 +157,9 @@ class XGB(ModelBase):
         #             BestParams['max_depth'] = depth
         # print(BestParams)
 
-        params['eta'] = 0.04
-        params['max_depth'] = 10
-
-        # # train model
+        ## train model
         print("\nTraining XGBoost ...")
-        self._model = xgboost.train(params, dtrain, num_boost_round= 120)
+        self._model = xgboost.train(self._params, dtrain, num_boost_round= self._iter)
 
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,datetime.now().strftime('%Y%m%d-%H:%M:%S'))
         with open(self._f_eval_train_model,'wb') as o_file:
@@ -211,28 +213,14 @@ class XGB(ModelBase):
 
         ## retrain model
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
-        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror'].values.astype(np.float32)
-        y_mean = np.mean(Y)
+        self._params['base_score'] = np.mean(Y)
 
         dtrain = xgboost.DMatrix(X,Y)
 
-        params = {
-            'subsample': 0.80,
-            'objective': 'reg:linear',
-            'eval_metric': 'mae',
-            'base_score': y_mean,
-            'silent': 0,
-            'npthread': 4,
-            'lambda': 0.8,
-            'alpha': 0.3995
-        }
-
-        params['eta'] = 0.04
-        params['max_depth'] = 10
-
         print('\n Retraining XGBoost ...')
-        self._model = xgboost.train(params, dtrain, num_boost_round= 80)
+        self._model = xgboost.train(self._params, dtrain, num_boost_round= self._iter)
         print('\n Retraining done.')
 
         del X,Y,dtrain,self.TrainData
@@ -240,6 +228,7 @@ class XGB(ModelBase):
 
         ## for test
         self.TestData = self._data.LoadFromHdfFile(self.InputDir, 'test')
+        #self.TestData = self.TestData.sample(frac = 0.01)
 
         self._sub = pd.DataFrame(index=self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']

@@ -28,6 +28,7 @@ class ModelBase(object):
     _l_valid_predict_columns = ['201607', '201608', '201609', '201610', '201611', '201612']
     _l_selected_features = []
 
+    ## outliers
     _low = -0.4
     _up = 0.418
 
@@ -35,6 +36,10 @@ class ModelBase(object):
 
         self.InputDir = InputDir
         self.OutputDir = OutputDir
+
+
+        if(os.path.exists(OutputDir) == False):
+            os.makedirs(OutputDir)
 
         self.TrainData = self._data.LoadFromHdfFile(self.InputDir,'train')
         self.ValidData = self._data.LoadFromHdfFile(self.InputDir,'valid')

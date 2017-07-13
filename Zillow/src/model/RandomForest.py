@@ -11,19 +11,23 @@ from datetime import datetime
 import dill as pickle
 
 class RF(ModelBase):
-   """"""
-   def train(self):
-      """"""
-      print('size before truncated outliers is %d ' % len(self.TrainData))
-      self.TrainData = self.TrainData[
-         (self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
-      print('size after truncated outliers is %d ' % len(self.TrainData))
 
-      X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
-      Y = self.TrainData['logerror']
-      self._l_train_columns = X.columns
-      nfolds = 10
-      FeatCols = list(self._l_train_columns)
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
+    _iter = 50
+    _depth = 200
+
+    def train(self):
+        """"""
+        print('size before truncated outliers is %d ' % len(self.TrainData))
+        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        print('size after truncated outliers is %d ' % len(self.TrainData))
+
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
+        Y = self.TrainData['logerror']
+        self._l_train_columns = X.columns
+
+        nfolds = 10
+        FeatCols = list(self._l_train_columns)
 
       # BestTreeDepth = 0
       # BestBaggingFeat = 0
@@ -58,72 +62,69 @@ class RF(ModelBase):
       #                 BestTreeDepth = TreeDepth
       #                 BestBaggingFeat = BaggingFeat
 
-      RF = RandomForestRegressor(random_state=2017, criterion='mse',
-                                 n_estimators=50, n_jobs=2,
-                                 max_depth=200,
+        RF = RandomForestRegressor(random_state=2017, criterion='mse',
+                                 n_estimators= self._iter, n_jobs=2,
+                                 max_depth= self._depth,
                                  max_features=int(math.sqrt(len(FeatCols))))
-      self._model = RF.fit(X, Y)
-      ## evaluate on valid data
-      self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
+        self._model = RF.fit(X, Y)
+        ## evaluate on valid data
+        self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
                                                           datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-      with open(self._f_eval_train_model, 'wb') as o_file:
-          pickle.dump(self._model, o_file, -1)
-      o_file.close()
+        with open(self._f_eval_train_model, 'wb') as o_file:
+            pickle.dump(self._model, o_file, -1)
+        o_file.close()
 
-      self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
+        self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
 
-      return
+        return
 
+    def evaluate(self):
+        """"""
+        pred_valid = pd.DataFrame(index=self.ValidData.index)
+        pred_valid['parcelid'] = self.ValidData['parcelid']
 
-   def evaluate(self):
-      """"""
-      pred_valid = pd.DataFrame(index=self.ValidData.index)
-      pred_valid['parcelid'] = self.ValidData['parcelid']
+        truth_valid = pd.DataFrame(index=self.ValidData.index)
+        truth_valid['parcelid'] = self.ValidData['parcelid']
 
-      truth_valid = pd.DataFrame(index=self.ValidData.index)
-      truth_valid['parcelid'] = self.ValidData['parcelid']
+        start = time.time()
 
-      start = time.time()
+        for d in self._l_valid_predict_columns:
+            l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
+            x_valid = self.ValidData[l_valid_columns]
+            x_valid = x_valid.values.astype(np.float32, copy=False)
+            pred_valid[d] = self._model.predict(x_valid)  # * 0.97 + 0.011 * 0.03
+            df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
+            truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
 
-      for d in self._l_valid_predict_columns:
-         l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in
-                            self._l_train_columns]
-         x_valid = self.ValidData[l_valid_columns]
-         x_valid = x_valid.values.astype(np.float32, copy=False)
-         pred_valid[d] = self._model.predict(x_valid)  # * 0.97 + 0.011 * 0.03
-         df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
-         truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
+        score = 0.0
+        ae = np.abs(pred_valid - truth_valid)
+        for col in ae.columns:
+            score += np.sum(ae[col])
+        score /= len(pred_valid)  ##!! divided by number of instances, not the number of 'cells'
+        print('============================= ')
+        print('Local MAE is %.6f' % score)
+        print('=============================')
 
-      score = 0.0
-      ae = np.abs(pred_valid - truth_valid)
-      for col in ae.columns:
-         score += np.sum(ae[col])
-      score /= len(pred_valid)  ##!! divided by number of instances, not the number of 'cells'
-      print('============================= ')
-      print('Local MAE is %.6f' % score)
-      print('=============================')
+        end = time.time()
 
-      end = time.time()
+        del self.ValidData
+        gc.collect()
 
-      # del self.ValidData
-      # gc.collect()
-
-      print('time elapsed %ds' % (end - start))
+        print('time elapsed %ds' % (end - start))
 
     ## predict on test data
-   def submit(self):
+    def submit(self):
         ## retrain with the whole training data
-        self.TrainData = self.TrainData[
-            (self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
-        X = self.TrainData.drop(['logerror', 'parcelid', 'transactiondate'], axis=1)
+        X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror']
 
         FeatCols = list(self._l_train_columns)
 
         RF = RandomForestRegressor(random_state=2017, criterion='mse',
-                                    n_estimators=50, n_jobs=2,
-                                    max_depth=200,
+                                    n_estimators= self._iter, n_jobs=2,
+                                    max_depth= self._depth,
                                     max_features=int(math.sqrt(len(FeatCols))))
         self._model = RF.fit(X, Y)
 
@@ -148,7 +149,6 @@ class RF(ModelBase):
 
            for idx in range(0, len(x_test), N):
               x_test_block = x_test[idx:idx + N]#.values.astype(np.float32, copy=False)
-              #self._model.reset_parameter({"num_threads": 4})
               ret = self._model.predict(x_test_block)  # * 0.93 + 0.012 * 0.07
               self._sub.loc[x_test[idx:idx + N].index, d] = ret
               print(np.mean(np.abs(ret)))
