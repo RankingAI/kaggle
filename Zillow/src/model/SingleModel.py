@@ -4,6 +4,8 @@ from model.XGBoost import XGB
 from model.RandomForest import RF
 from model.ElasticNet import EN
 from model.GradientBoostingRegressor import GBR
+from model.LassoRegression import LR
+from model.ExtraTreeRegressor import ETR
 
 class SingleModel:
 
@@ -14,7 +16,9 @@ class SingleModel:
                    'xgb': XGB,
                    'rf': RF,
                    'en': EN,
-                   'gbr': GBR
+                   'gbr': GBR,
+                   'lr': LR,
+                   'etr': ETR
                    }
 
         start = time.time()

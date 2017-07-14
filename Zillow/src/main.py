@@ -21,7 +21,7 @@ if __name__ == '__main__':
     ## single model
     #InputDir = '%s/p2' % DataDir
     #OutputDir = '%s/SingleModel2' % DataDir
-    #strategies = ['gbr']
+    #strategies = ['etr']
     #SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model
@@ -30,6 +30,6 @@ if __name__ == '__main__':
 
     ## evaluation ensemble model
     em = EnsembleModel('%s/p2' % DataDir,OutputDir)
-    #em.EvaluateEnsembleModel(InputDir)
+    em.EvaluateEnsembleModel(InputDir)
     # predict test data with ensemble model
-    em.SimpleEnsemble(InputDir,OutputDir)
+    #em.SimpleEnsemble(InputDir,OutputDir)

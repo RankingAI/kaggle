@@ -12,7 +12,7 @@ import dill as pickle
 
 class RF(ModelBase):
 
-    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index']
     _iter = 50
     _depth = 200
 

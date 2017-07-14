@@ -32,7 +32,7 @@ class LGB(ModelBase):
 
     _iter = 120
 
-    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index']
 
     def selection(self):
         """"""

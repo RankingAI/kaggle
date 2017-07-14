@@ -11,7 +11,7 @@ import gc
 
 class EN(ModelBase):
 
-   _l_drop_cols = ['logerror', 'parcelid', 'transactiondate', 'index', 'nullcount']
+   _l_drop_cols = ['logerror', 'parcelid', 'transactiondate', 'index','nullcount']
    _alpha = 0.001
    _ratio = 0.1
    _iter = 1000
@@ -39,9 +39,9 @@ class EN(ModelBase):
 
       self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
                                                           datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-      with open(self._f_eval_train_model, 'wb') as o_file:
-         pickle.dump(self._model, o_file, -1)
-      o_file.close()
+      #with open(self._f_eval_train_model, 'wb') as o_file:
+      #   pickle.dump(self._model, o_file, -1)
+      #o_file.close()
 
       self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
 
