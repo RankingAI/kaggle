@@ -6,6 +6,9 @@ from model.ElasticNet import EN
 from model.GradientBoostingRegressor import GBR
 from model.LassoRegression import LR
 from model.ExtraTreeRegressor import ETR
+from model.SVR import SVR_
+from model.GBREncoding import GBRE
+from model.RidgeRegression import RR
 
 class SingleModel:
 
@@ -18,15 +21,16 @@ class SingleModel:
                    'en': EN,
                    'gbr': GBR,
                    'lr': LR,
-                   'etr': ETR
+                   'etr': ETR,
+                   'svr': SVR_,
+                   'gbre': GBRE,
+                   'rr': RR
                    }
 
         start = time.time()
 
         model = d_model[task](InputDir,OutputDir)
 
-        #print('Selection begins ...')
-        #model.selection()
         print('Training %s begins ...' % task)
         model.train()
         print('Evaluation %s begins ...' % task)

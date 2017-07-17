@@ -14,6 +14,8 @@ import os
 class GBR(ModelBase):
 
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
+    #_l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount', 'taxdelinquencyyear', 'finishedsquarefeet15', 'finishedsquarefeet6', 'yardbuildingsqft17']
+
     _iter = 80
     _learning_rate = 0.4
     _depth= 6
@@ -23,11 +25,18 @@ class GBR(ModelBase):
     def train(self):
         """"""
         print('size before truncated outliers is %d ' % len(self.TrainData))
-        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
-        print('size after truncated outliers is %d ' % len(self.TrainData))
+        TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        print('size after truncated outliers is %d ' % len(TrainData))
+        #TrainData['bathroomratio'] = TrainData['bathroomcnt'] / TrainData['calculatedbathnbr']
+        #TrainData.loc[TrainData['bathroomratio'] < 0, 'bathroomratio'] = -1
+        #
+        # TrainData['structuretaxvalueratio'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
+        # TrainData['landtaxvalueratio'] = TrainData['landtaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
+        # TrainData.loc[TrainData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
+        # TrainData.loc[TrainData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
 
-        X = self.TrainData.drop(self._l_drop_cols, axis=1)
-        Y = self.TrainData['logerror']
+        X = TrainData.drop(self._l_drop_cols, axis=1)
+        Y = TrainData['logerror']
         self._l_train_columns = X.columns
         FeatCols = list(self._l_train_columns)
 
@@ -81,9 +90,9 @@ class GBR(ModelBase):
         ## evaluate on valid data
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
                                                             datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-        with open(self._f_eval_train_model, 'wb') as o_file:
-            pickle.dump(self._model, o_file, -1)
-        o_file.close()
+        #with open(self._f_eval_train_model, 'wb') as o_file:
+        #    pickle.dump(self._model, o_file, -1)
+        #o_file.close()
 
         self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],
                                    ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
@@ -92,20 +101,30 @@ class GBR(ModelBase):
 
     def evaluate(self):
         """"""
-        pred_valid = pd.DataFrame(index=self.ValidData.index)
-        pred_valid['parcelid'] = self.ValidData['parcelid']
+        ValidData = self.ValidData
 
-        truth_valid = pd.DataFrame(index=self.ValidData.index)
-        truth_valid['parcelid'] = self.ValidData['parcelid']
+        #ValidData['bathroomratio'] = ValidData['bathroomcnt'] / ValidData['calculatedbathnbr']
+        #ValidData.loc[ValidData['bathroomratio'] < 0, 'bathroomratio'] = -1
+        #
+        # ValidData['structuretaxvalueratio'] = ValidData['structuretaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
+        # ValidData['landtaxvalueratio'] = ValidData['landtaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
+        # ValidData.loc[ValidData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
+        # ValidData.loc[ValidData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+
+        pred_valid = pd.DataFrame(index= ValidData.index)
+        pred_valid['parcelid'] = ValidData['parcelid']
+
+        truth_valid = pd.DataFrame(index= ValidData.index)
+        truth_valid['parcelid'] = ValidData['parcelid']
 
         start = time.time()
 
         for d in self._l_valid_predict_columns:
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
-            x_valid = self.ValidData[l_valid_columns]
+            x_valid = ValidData[l_valid_columns]
             x_valid = x_valid.values.astype(np.float32, copy=False)
             pred_valid[d] = self._model.predict(x_valid)  # * 0.97 + 0.011 * 0.03
-            df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
+            df_tmp = ValidData[ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
 
         score = 0.0

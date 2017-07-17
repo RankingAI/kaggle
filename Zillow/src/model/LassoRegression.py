@@ -5,23 +5,128 @@ import numpy as np
 import dill as pickle
 import time,os
 from datetime import datetime
-from sklearn.cross_validation import StratifiedKFold,cross_val_score
+from model.GBREncoding import GBRE
 import gc
 
 class LR(ModelBase):
     """"""
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate', 'index', 'nullcount']
-    _alpha = 0.001
-    _iter = 200
-    _sel = 'random'
+    _lr_alpha = 0.001
+    _lr_iter = 200
+    _lr_sel = 'random'
+
+    #_encode = GBRE()
+    #
+    # def __transform(self):
+    #     """"""
+    #     start = time.time()
+    #
+    #     slice = 20
+    #
+    #     TrainData = self.TrainData
+    #
+    #     l_drop_cols_en = [col for col in self._l_drop_cols if((col != 'logerror') & (col != 'parcelid'))]
+    #     TrainData = TrainData.drop(l_drop_cols_en, axis= 1)
+    #     EncodeModel = self._encode.train(TrainData)
+    #     XTrain = TrainData.drop(['logerror'], axis= 1)
+    #     l_train_columns = XTrain.columns
+    #     IndiceTrain = EncodeModel.apply(XTrain)[..., :slice]
+    #
+    #     print('Tree number %d, slice %d' % (EncodeModel.estimators_.shape[0], slice))
+    #
+    #     cols = ['tree%d' % i for i in range(slice)]
+    #     TransformedTrain = pd.DataFrame(data= IndiceTrain, index= XTrain.index, columns= cols)
+    #     TransformedTrain['logerror'] = TrainData['logerror']
+    #     TransformedTrain['parcelid'] = TrainData['parcelid']
+    #
+    #     d_transformed_valid = {}
+    #     for d in self._l_valid_predict_columns:
+    #         l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in l_train_columns]
+    #         XValid = self.ValidData[l_valid_columns]
+    #         IndiceValid = EncodeModel.apply(XValid)[..., :slice]
+    #         TransformedValid = pd.DataFrame(data= IndiceValid, index= XValid.index, columns= cols)
+    #         TransformedValid['logerror'] = self.ValidData['logerror']
+    #         TransformedValid['parcelid'] = self.ValidData['parcelid']
+    #         TransformedValid['transactiondate'] = self.ValidData['transactiondate']
+    #         d_transformed_valid[d] = TransformedValid
+    #
+    #     return TransformedTrain, d_transformed_valid
+    #
+    # def EncodeEvaluate(self):
+    #
+    #
+    #     print('size before truncated outliers is %d ' % len(self.TrainData))
+    #     self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+    #     print('size after truncated outliers is %d ' % len(self.TrainData))
+    #
+    #     start = time.time()
+    #     print('Transform begins...')
+    #     train, valid = self.__transform()
+    #     print('Transform done.')
+    #
+    #     XTrain = train.drop(['logerror', 'parcelid'], axis=1)
+    #     YTrain = train['logerror']
+    #
+    #     XTrain, EncodeDict = self._encode.OHETr(XTrain)
+    #     XTrain = pd.concat([self.TrainData.drop(self._l_drop_cols, axis= 1), XTrain], axis = 1)
+    #     l_train_columns = self.TrainData.drop(self._l_drop_cols, axis= 1).columns
+    #     print('Encoding for train is done.')
+    #
+    #     print('Lasso training begins...')
+    #     lr = Lasso(alpha= self._lr_alpha, max_iter= self._lr_iter, tol=1e-4, random_state=2017, selection= self._lr_sel)
+    #     model = lr.fit(XTrain, YTrain)
+    #     print('Lasso training done.')
+    #     del XTrain, YTrain, train
+    #     gc.collect()
+    #
+    #     tmp_va = valid[list(valid.keys())[0]]
+    #     pred_valid = pd.DataFrame(index= tmp_va.index)
+    #     pred_valid['parcelid'] = tmp_va['parcelid']
+    #
+    #     truth_valid = pd.DataFrame(index= tmp_va.index)
+    #     truth_valid['parcelid'] = tmp_va['parcelid']
+    #
+    #     del tmp_va
+    #     gc.collect()
+    #
+    #     for d in self._l_valid_predict_columns:
+    #         XValid = valid[d].drop(['logerror', 'parcelid', 'transactiondate'], axis= 1)
+    #         XValid = self._encode.OHEVa(EncodeDict, XValid)
+    #
+    #         l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in l_train_columns]
+    #
+    #         XValid = pd.concat([self.ValidData[l_valid_columns], XValid], axis= 1)
+    #         print('Encoding for valid is done.')
+    #         pred_valid[d] = model.predict(XValid)  # * 0.99 + 0.011 * 0.01
+    #         df_tmp = valid[d][valid[d]['transactiondate'].dt.month == int(d[-2:])]
+    #         truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
+    #
+    #     score = 0.0
+    #     ae = np.abs(pred_valid - truth_valid)
+    #     for col in ae.columns:
+    #         score += np.sum(ae[col])
+    #     score /= len(pred_valid)  ##!! divided by number of instances, not the number of 'cells'
+    #     print('============================= ')
+    #     print('Local MAE is %.6f' % score)
+    #     print('=============================')
+    #
+    #     end = time.time()
+    #
+    #     del self.ValidData
+    #     gc.collect()
+    #
+    #     print('time elapsed %ds' % (end - start))
 
     def train(self):
         """"""
         start = time.time()
 
+        extra_tr = pd.read_hdf(path_or_buf='%s/p21/eval_train.hdf' % self.InputDir, key='train')
+
         print('size before truncated outliers is %d ' % len(self.TrainData))
-        self.TrainData = self.TrainData[
-            (self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        #self.TrainData = self.TrainData.join(extra_tr, on='parcelid', how= 'left')
+        self.TrainData = pd.concat([self.TrainData, extra_tr.drop('parcelid', axis= 1)], axis = 1)
         print('size after truncated outliers is %d ' % len(self.TrainData))
 
         X = self.TrainData.drop(self._l_drop_cols, axis=1)
@@ -29,7 +134,7 @@ class LR(ModelBase):
         self._l_train_columns = X.columns
         X = X.values.astype(np.float32, copy=False)
 
-        lr = Lasso(alpha= self._alpha, max_iter= self._iter, tol= 1e-4, random_state= 2017, selection= self._sel)
+        lr = Lasso(alpha= self._lr_alpha, max_iter= self._lr_iter, tol= 1e-4, random_state= 2017, selection= self._lr_sel)
         self._model = lr.fit(X, Y)
         end = time.time()
 
@@ -41,8 +146,8 @@ class LR(ModelBase):
             pickle.dump(self._model, o_file, -1)
         o_file.close()
 
-        self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],
-                                   ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
+        #self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],
+        #                           ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
 
         return
 
@@ -60,10 +165,15 @@ class LR(ModelBase):
         for d in self._l_valid_predict_columns:
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in
                                self._l_train_columns]
-            x_valid = self.ValidData[l_valid_columns]
+
+            extra_va = pd.read_hdf(path_or_buf='%s/p21/eval_valid_%s.hdf' % (self.InputDir, d), key='valid')
+            #ValidData = self.ValidData.join(extra_va, on= 'parcelid', how= 'left')
+            ValidData = pd.concat([self.ValidData, extra_va.drop('parcelid', axis= 1)], axis= 1)
+
+            x_valid = ValidData[l_valid_columns]
             x_valid = x_valid.values.astype(np.float32, copy=False)
             pred_valid[d] = self._model.predict(x_valid)  # * 0.99 + 0.011 * 0.01
-            df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
+            df_tmp = ValidData[ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
 
         score = 0.0

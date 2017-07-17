@@ -41,14 +41,16 @@ class EnsembleModel(ModelBase):
         start = time.time()
 
         #lgb_file = '%s/LGB_20170713-12:54:46.pkl' % InputDir
-        lgb_file = '%s/LGB_20170713-20:38:23.pkl' % InputDir ## with nullcount
+        #lgb_file = '%s/LGB_20170713-20:38:23.pkl' % InputDir ## with nullcount
+        lgb_file = '%s/LGB_20170716-22:48:28.pkl' % InputDir ## with structuretaxvalueratio and landtaxvalueratio
         xgb_file = '%s/XGB_20170713-13:57:47.pkl' % InputDir
         #rf_file = '%s/RF_20170713-15:00:17.pkl' % InputDir
-        rf_file = '%s/RF_20170714-11:16:32.pkl' % InputDir
+        rf_file = '%s/RF_20170717-02:29:41.pkl' % InputDir
         en_file = '%s/EN_20170713-15:23:53.pkl' % InputDir
         gbr_file = '%s/GBR_20170713-17:02:00.pkl' % InputDir
-        #lr_file = '%s/LR_20170713-20:12:33.pkl' % InputDir
+        #lr_file = '%s/LR_20170716-18:59:51.pkl' % InputDir
         #etr_file = '%s/ETR_20170714-13:34:17.pkl' % InputDir
+        #rr_file = '%s/RR_20170717-02:14:44.pkl' % InputDir
 
         with open(lgb_file,'rb') as i_file:
             lgb = pickle.load(i_file)
@@ -78,6 +80,10 @@ class EnsembleModel(ModelBase):
         #     etr = pickle.load(i_file)
         # i_file.close()
         # print('Load etr model done.')
+        # with open(rr_file,'rb') as i_file:
+        #     rr = pickle.load(i_file)
+        # i_file.close()
+        # print('Load rr model done.')
 
         mean_logerror = np.mean(self.TrainData['logerror'])
         print('Mean logerror %.4f' % mean_logerror)
@@ -108,6 +114,9 @@ class EnsembleModel(ModelBase):
         #
         # pred_etr = pd.DataFrame(index=self.ValidData.index)
         # pred_etr['parcelid'] = self.ValidData['parcelid']
+        #
+        # pred_rr = pd.DataFrame(index=self.ValidData.index)
+        # pred_rr['parcelid'] = self.ValidData['parcelid']
 
         truth_valid = pd.DataFrame(index=self.ValidData.index)
         truth_valid['parcelid'] = self.ValidData['parcelid']
@@ -117,22 +126,34 @@ class EnsembleModel(ModelBase):
             x_valid = self.ValidData[l_valid_columns]
 
             ## for common
-            x_valid_common = x_valid.drop(['nullcount'],axis= 1).values.astype(np.float32, copy=False)
+            x_valid_common = x_valid.drop(['nullcount'],axis= 1)
             ## for lgb
-            x_valid_lgb_rf = x_valid.values.astype(np.float32, copy=False)
+            x_valid_rf = x_valid.copy()
+            x_valid_lgb = x_valid.copy()
+
+            x_valid_lgb['structuretaxvalueratio'] = x_valid_lgb['structuretaxvaluedollarcnt'] / x_valid_lgb[
+                'taxvaluedollarcnt']
+            x_valid_lgb['landtaxvalueratio'] = x_valid_lgb['landtaxvaluedollarcnt'] / x_valid_lgb['taxvaluedollarcnt']
+            x_valid_lgb.loc[x_valid_lgb['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
+            x_valid_lgb.loc[x_valid_lgb['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+
             ## for xgb
             x_valid.columns = ['lastgap' if('lastgap' in col) else 'monthyear' if('monthyear' in col) else 'buildingage' if('buildingage' in col) else col for col in x_valid.columns]
+
+            #extra_va = pd.read_hdf(path_or_buf='%s/p21/eval_valid_%s.hdf' % (self.InputDir, d), key='valid')
+            #x_valid_lr = pd.concat([x_valid_common, extra_va.drop('parcelid', axis= 1)], axis= 1)
 
             ## add new feature nullcount for lgb, so need to be excluded fo xgb, rf, and en
             dvalid = xgboost.DMatrix(x_valid.drop(['nullcount'],axis= 1))
             ## predict
-            pred_lgb_slice = lgb.predict(x_valid_lgb_rf)
+            pred_lgb_slice = lgb.predict(x_valid_lgb)
             pred_xgb_slice = xgb.predict(dvalid)
-            pred_rf_slice = rf.predict(x_valid_lgb_rf)
+            pred_rf_slice = rf.predict(x_valid_rf)
             pred_en_slice = en.predict(x_valid_common)
             pred_gbr_slice = gbr.predict(x_valid_common)
-            #pred_lr_slice = lr.predict(x_valid_common)
+            #pred_lr_slice = lr.predict(x_valid_lr)
             #pred_etr_slice = etr.predict(x_valid_common)
+            #pred_rr_slice = rr.predict(x_valid_common)
             ## ensemble
             pred_lgb[d] = pred_lgb_slice
             pred_xgb[d]= pred_xgb_slice
@@ -141,13 +162,15 @@ class EnsembleModel(ModelBase):
             pred_gbr[d] = pred_gbr_slice #* (1.0 - bias_weight ) + bias_weight * bias
             #pred_lr[d] = pred_lr_slice #* (1.0 - bias_weight ) + bias_weight * bias
             #pred_etr[d] = pred_etr_slice #* (1.0 - bias_weight ) + bias_weight * bias
+            #pred_rr[d] = pred_rr_slice #* (1.0 - bias_weight ) + bias_weight * bias
             score = pred_lgb_slice * self.d_weight['lgb'] + \
                     pred_xgb_slice * self.d_weight['xgb'] + \
                     pred_en_slice * self.d_weight['en'] + \
                     pred_gbr_slice * self.d_weight['gbr'] + \
                     pred_rf_slice * self.d_weight['rf']
+                    #pred_rr_slice * self.d_weight['rr']
+                    #pred_lr_slice * self.d_weight['lr']
                     #pred_etr_slice * self.d_weight['etr']
-                #pred_lr_slice * self.d_weight['lr']
 
             pred_ensemble[d] = (1.0 - self.bias_weight) * score + self.bias_weight * self.bias
             df_tmp = self.ValidData[self.ValidData['transactiondate'].dt.month == int(d[-2:])]
@@ -182,7 +205,7 @@ class EnsembleModel(ModelBase):
         for col in gbr_ae.columns:
             gbr_score += np.sum(gbr_ae[col])
         gbr_score /= len(pred_gbr)
-        #
+
         # lr_score = 0.0
         # lr_ae = np.abs(pred_lr - truth_valid)
         # for col in lr_ae.columns:
@@ -196,13 +219,20 @@ class EnsembleModel(ModelBase):
         #      etr_score += np.sum(etr_ae[col])
         # etr_score /= len(pred_etr)
 
+        #
+        # rr_score = 0.0
+        # rr_ae = np.abs(pred_rr - truth_valid)
+        # for col in rr_ae.columns:
+        #      rr_score += np.sum(rr_ae[col])
+        # rr_score /= len(pred_rr)
+
         ensemble_score = 0.0
         ensemble_ae = np.abs(pred_ensemble - truth_valid)
         for col in ensemble_ae.columns:
             ensemble_score += np.sum(ensemble_ae[col])
         ensemble_score /= len(pred_ensemble)  ##!! divided by number of instances, not the number of 'cells'
         print('=============================')
-        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb), %.6f(rf), %.6f(en), %.6f(gbr).' %
+        print('Local MAE is %.6f(ensemble), %.6f(lgb), %.6f(xgb), %.6f(rf), %.6f(en), %.6f(gbr). ' %
               (ensemble_score, lgb_score, xgb_score, rf_score, en_score, gbr_score))
         print('=============================')
 
@@ -219,9 +249,10 @@ class EnsembleModel(ModelBase):
 
         ## ensemble the best ones of lgb and xgb
         #lgb_result = pd.read_csv('%s/lgb_418_biased.csv' % InputDir)
-        lgb_result = pd.read_csv('%s/lgb_418_biased_nullcount.csv' % InputDir)
+        #lgb_result = pd.read_csv('%s/lgb_418_biased_nullcount.csv' % InputDir)
+        lgb_result = pd.read_csv('%s/lgb_418_bias_nullcount_taxratio.csv' % InputDir)
         xgb_result = pd.read_csv('%s/xgb_418_biased.csv' % InputDir)  # parameter base_score equals the mean of target
-        rf_result = pd.read_csv('%s/rf_418_nullcount.csv' % InputDir)
+        rf_result = pd.read_csv('%s/rf_418_nullcount_optimized.csv' % InputDir)
         en_result = pd.read_csv('%s/en_418.csv' % InputDir)
         gbr_result = pd.read_csv('%s/gbr_418.csv' % InputDir)
 
