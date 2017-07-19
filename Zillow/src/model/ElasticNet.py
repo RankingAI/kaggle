@@ -28,6 +28,8 @@ class EN(ModelBase):
       print('size after truncated outliers is %d ' % len(TrainData))
       #TrainData['bathroomratio'] = TrainData['bathroomcnt'] / TrainData['calculatedbathnbr']
       #TrainData.loc[TrainData['bathroomratio'] < 0, 'bathroomratio'] = -1
+      TrainData['longitude'] -= -118600000
+      TrainData['latitude'] -= 34220000
 
       #
       # TrainData['structuretaxvalueratio'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
@@ -48,9 +50,9 @@ class EN(ModelBase):
 
       self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
                                                           datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-      #with open(self._f_eval_train_model, 'wb') as o_file:
-      #   pickle.dump(self._model, o_file, -1)
-      #o_file.close()
+      with open(self._f_eval_train_model, 'wb') as o_file:
+         pickle.dump(self._model, o_file, -1)
+      o_file.close()
 
       self.TrainData = pd.concat([self.TrainData, self.ValidData[self.TrainData.columns]],ignore_index=True)  ## ignore_index will reset the index or index will be overlaped
 
@@ -105,6 +107,8 @@ class EN(ModelBase):
 
       #ValidData['bathroomratio'] = ValidData['bathroomcnt'] / ValidData['calculatedbathnbr']
       #ValidData.loc[ValidData['bathroomratio'] < 0, 'bathroomratio'] = -1
+      ValidData['longitude'] -= -118600000
+      ValidData['latitude'] -= 34220000
 
       # ValidData['structuretaxvalueratio'] = ValidData['structuretaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
       # ValidData['landtaxvalueratio'] = ValidData['landtaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
@@ -125,7 +129,7 @@ class EN(ModelBase):
                             self._l_train_columns]
          x_valid = ValidData[l_valid_columns]
          x_valid = x_valid.values.astype(np.float32, copy=False)
-         pred_valid[d] = self._model.predict(x_valid)# * 0.99 + 0.011 * 0.01
+         pred_valid[d] = self._model.predict(x_valid)# * 0.80 + 0.011 * 0.20
          df_tmp = ValidData[ValidData['transactiondate'].dt.month == int(d[-2:])]
          truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
 
@@ -150,6 +154,9 @@ class EN(ModelBase):
       ## retrain with the whole training data
       self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
+      self.TrainData['longitude'] -= -118600000
+      self.TrainData['latitude'] -= 34220000
+
       X = self.TrainData.drop(self._l_drop_cols, axis=1)
       Y = self.TrainData['logerror']
       X = X.values.astype(np.float32, copy=False)
@@ -166,6 +173,8 @@ class EN(ModelBase):
       self._sub = pd.DataFrame(index=self.TestData.index)
       self._sub['ParcelId'] = self.TestData['parcelid']
 
+      self.TestData['longitude'] -= -118600000
+      self.TestData['latitude'] -= 34220000
       N = 200000
       start = time.time()
       for d in self._l_test_predict_columns:

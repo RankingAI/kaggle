@@ -30,6 +30,9 @@ class RF(ModelBase):
         # TrainData['landtaxvalueratio'] = TrainData['landtaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         # TrainData.loc[TrainData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
         # TrainData.loc[TrainData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+        TrainData['longitude'] -= -118600000
+        TrainData['latitude'] -= 34220000
+        #TrainData.drop(['longitude','latitude'], axis= 1, inplace= True)
 
         X = TrainData.drop(self._l_drop_cols, axis=1)
         Y = TrainData['logerror']
@@ -74,7 +77,7 @@ class RF(ModelBase):
         RF = RandomForestRegressor(random_state=2017, criterion='mse',
                                  n_estimators= self._iter, n_jobs=2,
                                  max_depth= self._depth,
-                                 max_features=int(math.sqrt(len(FeatCols))),verbose= True)
+                                 max_features=int(math.sqrt(len(FeatCols))))
         self._model = RF.fit(X, Y)
         ## evaluate on valid data
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,
@@ -98,6 +101,9 @@ class RF(ModelBase):
         # ValidData['landtaxvalueratio'] = ValidData['landtaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
         # ValidData.loc[ValidData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
         # ValidData.loc[ValidData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+        ValidData['longitude'] -= -118600000
+        ValidData['latitude'] -= 34220000
+        #ValidData.drop(['longitude','latitude'], axis= 1, inplace= True)
 
         pred_valid = pd.DataFrame(index= ValidData.index)
         pred_valid['parcelid'] = ValidData['parcelid']
@@ -111,7 +117,7 @@ class RF(ModelBase):
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
             x_valid = ValidData[l_valid_columns]
             x_valid = x_valid.values.astype(np.float32, copy=False)
-            pred_valid[d] = self._model.predict(x_valid)  # * 0.97 + 0.011 * 0.03
+            pred_valid[d] = self._model.predict(x_valid)# * 0.50 + 0.011 * 0.50
             df_tmp = ValidData[ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index, d] = df_tmp['logerror']
 
@@ -136,6 +142,9 @@ class RF(ModelBase):
         ## retrain with the whole training data
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
+        self.TrainData['longitude'] -= -118600000
+        self.TrainData['latitude'] -= 34220000
+
         X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror']
 
@@ -156,6 +165,8 @@ class RF(ModelBase):
         self._sub = pd.DataFrame(index=self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']
 
+        self.TestData['longitude'] -= -118600000
+        self.TestData['latitude'] -= 34220000
         N = 200000
         start = time.time()
         for d in self._l_test_predict_columns:

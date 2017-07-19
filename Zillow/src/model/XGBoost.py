@@ -29,89 +29,6 @@ class XGB(ModelBase):
 
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','nullcount']
 
-    ## compute MAE of single column
-    def ComputeMAE(self,y_pred,y_truth):
-        """"""
-        return np.sum(np.abs(y_pred - y_truth))/len(y_pred)
-
-    ## feature selection with importance
-    def selection(self):
-        """"""
-        # split data into train and valid sets
-        msk = np.random.rand(len(self.TrainData)) < 0.1
-        valid = self.TrainData[msk]
-        train = self.TrainData[~msk]
-        print('Length of train for selection is %d, while that of valid is %d' % (len(train),len(valid)))
-
-        print('Before truncating outliers(train), %d ' % len(train))
-        train = train[(train['logerror'] > self._low) & (train['logerror'] < self._up)]
-        print('After truncating outliers(train), %d' % len(train))
-
-        x_train = train.drop(self._l_drop_cols,axis= 1)
-        y_train = train['logerror']#.values.astype(np.float32)
-        x_valid = valid.drop(self._l_drop_cols, axis = 1)
-        y_valid = valid['logerror']#.values.astype(np.float32)
-        y_mean = np.mean(y_train)
-
-        #
-        params = {
-            'subsample': 0.80,
-            'objective': 'reg:linear',
-            'eval_metric': 'mae',
-            'base_score': y_mean,
-            'silent': 0,
-            'npthread': 4,
-            'lambda': 0.8,
-            'alpha': 0.3995
-        }
-        TreeNum = 120
-        params['eta'] = 0.04
-        params['max_depth'] = 10
-
-        # fit model on all training data
-        dtrain = xgboost.DMatrix(x_train,y_train)
-        model = xgboost.train(params,dtrain,num_boost_round= TreeNum)
-        print('Fitting is done ...')
-
-        # make predictions for test data and evaluate
-        dvalid = xgboost.DMatrix(x_valid)
-        y_pred = model.predict(dvalid)
-        mae = self.ComputeMAE(y_pred, y_valid)
-        print("MAE : %.6f" % mae)
-
-        # Fit model using each importance as a threshold
-        scores = model.get_score(importance_type='weight')
-        SortedFeats = sorted(scores.items(), key=lambda x: x[1], reverse= True)
-        thresholds = [0.1,0.2,0.3,0.4]
-
-        MinMAE = 100
-        BestThreshold = 0.0
-        for thresh in thresholds:
-            # select features using threshold
-            feats = [feat[0] for feat in SortedFeats[:int(len(SortedFeats)*thresh)]]
-            select_x_train = xgboost.DMatrix(x_train[feats],y_train)
-            # train model
-            params['max_depth'] = 6
-            params['eta'] = 0.02
-            selection_model = xgboost.train(params, select_x_train, num_boost_round= 60)
-            # eval model
-            select_x_valid = xgboost.DMatrix(x_valid[feats])
-            y_pred = selection_model.predict(select_x_valid)
-            mae = self.ComputeMAE(y_pred, y_valid)
-            print("Thresh=%.3f, n=%d, MAE: %.6f" % (thresh, x_train[feats].shape[1], mae))
-            if(mae < MinMAE):
-                MinMAE = mae
-                BestThreshold = thresh
-
-        self._l_selected_features = [feat[0] for feat in SortedFeats[:int(len(SortedFeats) * BestThreshold)]]
-
-        with open('%s/selected.dat' % self.OutputDir,'w') as o_file:
-            for col in self._l_selected_features:
-                o_file.write('%s\n' % col)
-        o_file.close()
-
-        return
-
     def train(self):
         """"""
         start = time.time()
@@ -119,6 +36,9 @@ class XGB(ModelBase):
         print(len(self.TrainData))
         TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
         print(len(TrainData))
+
+        TrainData['longitude'] -= -118600000
+        TrainData['latitude'] -= 34220000
 
         # TrainData['structuretaxvalueratio'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         # TrainData['landtaxvalueratio'] = TrainData['landtaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
@@ -167,9 +87,9 @@ class XGB(ModelBase):
         self._model = xgboost.train(self._params, dtrain, num_boost_round= self._iter)
 
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-        #with open(self._f_eval_train_model,'wb') as o_file:
-        #    pickle.dump(self._model,o_file,-1)
-        #o_file.close()
+        with open(self._f_eval_train_model,'wb') as o_file:
+            pickle.dump(self._model,o_file,-1)
+        o_file.close()
 
         self.TrainData = pd.concat([self.TrainData,self.ValidData[self.TrainData.columns]],ignore_index= True) ## ignore_index will reset the index or index will be overlaped
 
@@ -180,6 +100,8 @@ class XGB(ModelBase):
         """"""
         ValidData = self.ValidData
 
+        ValidData['longitude'] -= -118600000
+        ValidData['latitude'] -= 34220000
         # ValidData['structuretaxvalueratio'] = ValidData['structuretaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
         # ValidData['landtaxvalueratio'] = ValidData['landtaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
         # ValidData.loc[ValidData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
@@ -225,6 +147,10 @@ class XGB(ModelBase):
 
         ## retrain model
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+
+        self.TrainData['longitude'] -= -118600000
+        self.TrainData['latitude'] -= 34220000
+
         X = self.TrainData.drop(self._l_drop_cols, axis=1)
         Y = self.TrainData['logerror'].values.astype(np.float32)
         self._params['base_score'] = np.mean(Y)
@@ -245,6 +171,9 @@ class XGB(ModelBase):
         self._sub = pd.DataFrame(index=self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']
 
+
+        self.TestData['longitude'] -= -118600000
+        self.TestData['latitude'] -= 34220000
         N = 200000
         for d in self._l_test_predict_columns:
             s0 = time.time()

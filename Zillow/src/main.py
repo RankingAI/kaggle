@@ -18,18 +18,18 @@ if __name__ == '__main__':
     #process = Preprocessing(InputDir,OutputDir,Mode= 'pkl')
     #process.run(tasks)
 
-    ## single model
-    #InputDir = '%s/p2' % DataDir
-    #OutputDir = '%s/SingleModel2' % DataDir
-    #strategies = ['rf']
-    #SingleModel.run(strategies,InputDir,OutputDir)
+    # ## single model
+    InputDir = '%s/p2' % DataDir
+    OutputDir = '%s/SingleModel2' % DataDir
+    strategies = ['lgb']
+    SingleModel.run(strategies,InputDir,OutputDir)
 
     ## ensemble model
-    InputDir = '%s/SingleModel2' % DataDir
-    OutputDir = '%s/EnsembleModel2' % DataDir
+    #InputDir = '%s/SingleModel2' % DataDir
+    #OutputDir = '%s/EnsembleModel2' % DataDir
 
     ## evaluation ensemble model
-    em = EnsembleModel('%s/p2' % DataDir,OutputDir)
+    #em = EnsembleModel('%s/p2' % DataDir,OutputDir)
     #em.EvaluateEnsembleModel(InputDir)
     # predict test data with ensemble model
-    em.SimpleEnsemble(InputDir,OutputDir)
+    #em.SimpleEnsemble(InputDir,OutputDir)

@@ -35,82 +35,6 @@ class LGB(ModelBase):
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index']
     #_l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','taxdelinquencyyear', 'finishedsquarefeet15', 'finishedsquarefeet6', 'yardbuildingsqft17']
 
-    def selection(self):
-        """"""
-        print('size before truncated outliers is %d ' % len(self.TrainData))
-        self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
-        print('size after truncated outliers is %d ' % len(self.TrainData))
-
-        X = self.TrainData.drop(self._l_drop_cols, axis=1)
-        Y = self.TrainData['logerror']
-        self._l_train_columns = X.columns
-        nfolds = 5
-        FeatCols = list(self._l_train_columns)
-
-        # rfr = RandomForestRegressor(bootstrap=True, criterion='mse', max_depth=None,
-        #                   max_features= 40, max_leaf_nodes=None,
-        #                   min_samples_leaf= 20,
-        #                   min_samples_split= 100, min_weight_fraction_leaf=0.2,
-        #                   n_estimators= 10, n_jobs=1, oob_score=False, random_state=None,
-        #                   verbose=1, warm_start=False)
-
-        # BestTreeDepth = 0
-        # BestBaggingFeat = 0
-        # BestTreeNum = 0
-        # MinMeanMetrics = 1000
-        # for TreeNum in range(30, 33):
-        #     for TreeDepth in list(range(200, 201)):
-        #         # for BaggingFeat in range(int(math.sqrt(len(FeatCols))) - 2,int(math.sqrt(len(FeatCols))) + 3,1):
-        #         for BaggingFeat in [int(math.sqrt(len(FeatCols)))]:
-        #             KFold = StratifiedKFold(self.TrainData['logerror'], nfolds, shuffle=True, random_state=2017)
-        #             metrics = np.zeros((len(KFold)), dtype=float)
-        #             for fold, (tr, va) in enumerate(KFold, start=0):
-        #                 print(len(tr),len(va))
-        #                 TrainData = self.TrainData[self.TrainData.index.isin(tr)].copy()
-        #                 ValidData = self.TrainData[self.TrainData.index.isin(va)].copy()
-        #
-        #                 RF = RandomForestRegressor(random_state=2017 * (fold + 1),criterion= 'mse',
-        #                                             n_estimators=TreeNum, n_jobs= 2,
-        #                                             max_depth=TreeDepth,
-        #                                             max_features=BaggingFeat)
-        #                 RF.fit(TrainData[FeatCols], TrainData['logerror'])
-        #
-        #                 ValidData['predict'] = RF.predict(ValidData[FeatCols])
-        #                 #accuracy = 1.0 * len(ValidData[ValidData['predict'] == ValidData['y']]) / len(ValidData)
-        #                 mae = np.mean(np.abs(ValidData['predict'] - ValidData['logerror']))
-        #                 metrics[fold] = mae
-        #             MeanMetrics = np.mean(metrics)
-        #             print("TreeNum %d, TreeDepth %d, Mean mae %f" % (TreeNum, TreeDepth, MeanMetrics))
-        #             if (MeanMetrics < MinMeanMetrics):
-        #                 MinMeanMetrics = MeanMetrics
-        #                 BestTreeNum = TreeNum
-        #                 BestTreeDepth = TreeDepth
-        #                 BestBaggingFeat = BaggingFeat
-
-        RF = RandomForestRegressor(random_state=2017, criterion= 'mse',
-                                    n_estimators= 50, n_jobs= 2,
-                                    max_depth= 200,
-                                    max_features= int(math.sqrt(len(FeatCols))))
-
-        self._model = RF.fit(X,Y)
-        importances = RF.feature_importances_
-        #std = np.std([tree.feature_importances_ for tree in RF.estimators_],axis=0)
-        self._l_selected_features = [FeatCols[i] for i in np.argsort(importances)[:50]]
-        #self._model = RF.fit(X[self._l_train_columns],Y)
-        #print(self._l_train_columns)
-
-    def retrain(self):
-
-        X = self.TrainData.drop(self._l_drop_cols, axis=1)
-        Y = self.TrainData['logerror']
-
-        RF = RandomForestRegressor(random_state=2017, criterion= 'mse',
-                                    n_estimators= 50, n_jobs= 2,
-                                    max_depth= 200,
-                                    max_features= int(math.sqrt(len(self._l_selected_features))))
-        self._model = RF.fit(X[self._l_selected_features],Y)
-        self._l_train_columns = self._l_selected_features
-
     ## rewritten method
     def train(self):
 
@@ -130,6 +54,12 @@ class LGB(ModelBase):
         # TrainData['finishedsquarefeatratio'] = TrainData['finishedfloor1squarefeet'] / TrainData['lotsizesquarefeet']
         # TrainData.loc[TrainData['finishedsquarefeatratio'] > 1, 'finishedsquarefeatratio'] = 1
         # TrainData.loc[TrainData['finishedsquarefeatratio'] < 0, 'finishedsquarefeatratio'] = -1
+        TrainData['longitude'] -= -118600000
+        TrainData['latitude'] -= 34220000
+        #TrainData.drop(['longitude','latitude'], axis= 1, inplace= True)
+        #TrainData['latitude1'] = (TrainData['latitude'] / 10).astype(int)
+        #TrainData['latitude2'] = TrainData['latitude'].astype(int) % 10
+        #TrainData = TrainData.drop(['latitude'], axis= 1)
 
         TrainData['structuretaxvalueratio'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         TrainData.loc[TrainData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
@@ -137,12 +67,12 @@ class LGB(ModelBase):
         TrainData['landtaxvalueratio'] = TrainData['landtaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         TrainData.loc[TrainData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
 
-        #TrainData['structurelandtaxvalueratio'] = TrainData['structuretaxvalueratio'] / TrainData['landtaxvalueratio']
+        #TrainData['structurelandtaxvaluediff'] = TrainData['structuretaxvaluedollarcnt'] - TrainData['landtaxvaluedollarcnt']
         #TrainData['theothertaxvalueratio'] = 1.0 - TrainData['structuretaxvalueratio'] - TrainData['landtaxvalueratio']
 
-        #TrainData['propertytaxratio'] = TrainData['taxamount'] / TrainData['taxvaluedollarcnt']
-        #TrainData.loc[TrainData['propertytaxratio'] < 0, 'propertytaxratio'] = -1
-        #TrainData.loc[TrainData['propertytaxratio'] > 1, 'propertytaxratio'] = 1
+        # TrainData['propertytaxratio'] = TrainData['taxamount'] / TrainData['taxvaluedollarcnt']
+        # TrainData.loc[TrainData['propertytaxratio'] < 0, 'propertytaxratio'] = -1
+        # TrainData.loc[TrainData['propertytaxratio'] > 1, 'propertytaxratio'] = 1
 
         X = TrainData.drop(self._l_drop_cols,axis= 1)
         Y = TrainData['logerror']
@@ -222,6 +152,14 @@ class LGB(ModelBase):
         # ValidData['finishedsquarefeatratio'] = ValidData['finishedfloor1squarefeet'] / ValidData['lotsizesquarefeet']
         # ValidData.loc[ValidData['finishedsquarefeatratio'] > 1, 'finishedsquarefeatratio'] = 1
         # ValidData.loc[ValidData['finishedsquarefeatratio'] < 0, 'finishedsquarefeatratio'] = -1
+        ValidData['longitude'] -= -118600000
+        ValidData['latitude'] -= 34220000
+        #ValidData.drop(['longitude','latitude'], axis= 1, inplace= True)
+        #ValidData['latitude1'] = (ValidData['latitude'] / 10).astype(int)
+        #ValidData['latitude2'] = ValidData['latitude'].astype(int) % 10
+        #ValidData = ValidData.drop(['latitude'], axis= 1)
+        #ValidData['longitude1'] = (ValidData['longitude'] / 10).astype(int)
+        #ValidData['longitude2'] = ValidData['longitude'].astype(int) % 1000
 
         ValidData['structuretaxvalueratio'] = ValidData['structuretaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
         ValidData.loc[ValidData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
@@ -229,7 +167,7 @@ class LGB(ModelBase):
         ValidData['landtaxvalueratio'] = ValidData['landtaxvaluedollarcnt'] / ValidData['taxvaluedollarcnt']
         ValidData.loc[ValidData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
 
-        #ValidData['structurelandtaxvalueratio'] = ValidData['structuretaxvalueratio'] / ValidData['landtaxvalueratio']
+        #ValidData['structurelandtaxvaluediff'] = ValidData['structuretaxvaluedollarcnt'] - ValidData['landtaxvaluedollarcnt']
         #ValidData['theothertaxvalueratio'] = 1.0 - ValidData['structuretaxvalueratio'] - ValidData['landtaxvalueratio']
 
         #ValidData['propertytaxratio'] = ValidData['taxamount'] / ValidData['taxvaluedollarcnt']
@@ -248,7 +186,7 @@ class LGB(ModelBase):
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
             x_valid = ValidData[l_valid_columns]
             x_valid = x_valid.values.astype(np.float32, copy=False)
-            pred_valid[d] = self._model.predict(x_valid) * 0.99 + 0.011 * 0.01
+            pred_valid[d] = self._model.predict(x_valid)# * 0.99 + 0.011 * 0.01
             df_tmp = ValidData[ValidData['transactiondate'].dt.month == int(d[-2:])]
             truth_valid.loc[df_tmp.index,d] = df_tmp['logerror']
 
@@ -295,6 +233,9 @@ class LGB(ModelBase):
         ## retrain with the whole training data
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
 
+        self.TrainData['longitude'] -= -118600000
+        self.TrainData['latitude'] -= 34220000
+
         self.TrainData['structuretaxvalueratio'] = self.TrainData['structuretaxvaluedollarcnt'] / self.TrainData['taxvaluedollarcnt']
         self.TrainData['landtaxvalueratio'] = self.TrainData['landtaxvaluedollarcnt'] / self.TrainData['taxvaluedollarcnt']
         self.TrainData.loc[self.TrainData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
@@ -319,6 +260,8 @@ class LGB(ModelBase):
         self._sub = pd.DataFrame(index = self.TestData.index)
         self._sub['ParcelId'] = self.TestData['parcelid']
 
+        self.TestData['longitude'] -= -118600000
+        self.TestData['latitude'] -= 34220000
         N = 200000
         start = time.time()
         for d in self._l_test_predict_columns:
@@ -336,7 +279,7 @@ class LGB(ModelBase):
             for idx in range(0, len(x_test), N):
                 x_test_block = x_test[idx:idx + N].values.astype(np.float32, copy=False)
                 self._model.reset_parameter({"num_threads": 4})
-                ret = self._model.predict(x_test_block) * 0.99 + 0.011 * 0.01
+                ret = self._model.predict(x_test_block)# * 0.99 + 0.011 * 0.01
                 self._sub.loc[x_test[idx:idx + N].index, d] = ret
                 print(np.mean(np.abs(ret)))
 

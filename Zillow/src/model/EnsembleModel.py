@@ -14,11 +14,11 @@ class EnsembleModel(ModelBase):
         'lgb': 0.25,
         'xgb': 0.25,
         'gbr': 0.20,
-        'en': 0.15,
-        'rf': 0.15
+        'rf': 0.15,
+        'en': 0.15
     }
-    bias_weight = 0.01
-    bias = 0.011
+    bias_weight = 0.00
+    bias = 0.0110
     l_drop_columns = ['logerror', 'parcelid', 'transactiondate', 'index']
 
     @numba.jit
@@ -42,15 +42,20 @@ class EnsembleModel(ModelBase):
 
         #lgb_file = '%s/LGB_20170713-12:54:46.pkl' % InputDir
         #lgb_file = '%s/LGB_20170713-20:38:23.pkl' % InputDir ## with nullcount
-        lgb_file = '%s/LGB_20170716-22:48:28.pkl' % InputDir ## with structuretaxvalueratio and landtaxvalueratio
-        xgb_file = '%s/XGB_20170713-13:57:47.pkl' % InputDir
+        #lgb_file = '%s/LGB_20170718-13:23:28.pkl' % InputDir ## with structuretaxvalueratio and landtaxvalueratio
+        lgb_file = '%s/LGB_20170719-01:04:43.pkl' % InputDir ## with latitude and longitude optimized
+        #xgb_file = '%s/XGB_20170713-13:57:47.pkl' % InputDir
+        #xgb_file = '%s/XGB_20170718-14:16:19.pkl' % InputDir
+        xgb_file = '%s/XGB_20170719-00:04:35.pkl' % InputDir ## with latitude and longitude optimized
         #rf_file = '%s/RF_20170713-15:00:17.pkl' % InputDir
-        rf_file = '%s/RF_20170717-02:29:41.pkl' % InputDir
-        en_file = '%s/EN_20170713-15:23:53.pkl' % InputDir
-        gbr_file = '%s/GBR_20170713-17:02:00.pkl' % InputDir
-        #lr_file = '%s/LR_20170716-18:59:51.pkl' % InputDir
-        #etr_file = '%s/ETR_20170714-13:34:17.pkl' % InputDir
-        #rr_file = '%s/RR_20170717-02:14:44.pkl' % InputDir
+        #rf_file = '%s/RF_20170718-18:49:01.pkl' % InputDir
+        rf_file = '%s/RF_20170719-01:26:15.pkl' % InputDir ## with latitude and longitude optimized
+        #en_file = '%s/EN_20170718-18:45:45.pkl' % InputDir
+        en_file = '%s/EN_20170719-02:24:08.pkl' % InputDir ## with latitude and longitude optimized
+        #gbr_file = '%s/GBR_20170718-13:41:05.pkl' % InputDir
+        #gbr_file = '%s/GBR_20170718-13:44:54.pkl' % InputDir
+        #gbr_file = '%s/GBR_20170718-18:10:27.pkl' % InputDir
+        gbr_file = '%s/GBR_20170719-02:01:49.pkl' % InputDir ## with latitude and longitude optimized
 
         with open(lgb_file,'rb') as i_file:
             lgb = pickle.load(i_file)
@@ -85,9 +90,6 @@ class EnsembleModel(ModelBase):
         # i_file.close()
         # print('Load rr model done.')
 
-        mean_logerror = np.mean(self.TrainData['logerror'])
-        print('Mean logerror %.4f' % mean_logerror)
-
         x_train = self.TrainData.drop(self.l_drop_columns, axis= 1)
         self._l_train_columns = x_train.columns
 
@@ -121,9 +123,13 @@ class EnsembleModel(ModelBase):
         truth_valid = pd.DataFrame(index=self.ValidData.index)
         truth_valid['parcelid'] = self.ValidData['parcelid']
 
+        self.ValidData['longitude'] -= -118600000
+        self.ValidData['latitude'] -= 34220000
+
         for d in self._l_valid_predict_columns:
             l_valid_columns = ['%s%s' % (c, d) if (c in ['lastgap', 'monthyear', 'buildingage']) else c for c in self._l_train_columns]
             x_valid = self.ValidData[l_valid_columns]
+            ## transform latitude and longitude
 
             ## for common
             x_valid_common = x_valid.drop(['nullcount'],axis= 1)
@@ -131,11 +137,11 @@ class EnsembleModel(ModelBase):
             x_valid_rf = x_valid.copy()
             x_valid_lgb = x_valid.copy()
 
-            x_valid_lgb['structuretaxvalueratio'] = x_valid_lgb['structuretaxvaluedollarcnt'] / x_valid_lgb[
-                'taxvaluedollarcnt']
+            x_valid_lgb['structuretaxvalueratio'] = x_valid_lgb['structuretaxvaluedollarcnt'] / x_valid_lgb['taxvaluedollarcnt']
             x_valid_lgb['landtaxvalueratio'] = x_valid_lgb['landtaxvaluedollarcnt'] / x_valid_lgb['taxvaluedollarcnt']
             x_valid_lgb.loc[x_valid_lgb['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
             x_valid_lgb.loc[x_valid_lgb['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+            #x_valid_lgb['structurelandtaxvaluediff'] = x_valid_lgb['structuretaxvaluedollarcnt'] - x_valid_lgb['landtaxvaluedollarcnt']
 
             ## for xgb
             x_valid.columns = ['lastgap' if('lastgap' in col) else 'monthyear' if('monthyear' in col) else 'buildingage' if('buildingage' in col) else col for col in x_valid.columns]
@@ -146,11 +152,11 @@ class EnsembleModel(ModelBase):
             ## add new feature nullcount for lgb, so need to be excluded fo xgb, rf, and en
             dvalid = xgboost.DMatrix(x_valid.drop(['nullcount'],axis= 1))
             ## predict
-            pred_lgb_slice = lgb.predict(x_valid_lgb)
+            pred_lgb_slice = lgb.predict(x_valid_lgb)# * 0.95 + 0.011 * 0.05
             pred_xgb_slice = xgb.predict(dvalid)
-            pred_rf_slice = rf.predict(x_valid_rf)
-            pred_en_slice = en.predict(x_valid_common)
-            pred_gbr_slice = gbr.predict(x_valid_common)
+            pred_rf_slice = rf.predict(x_valid_rf)# * 0.50 + 0.011 * 0.50
+            pred_en_slice = en.predict(x_valid_common)# * 0.80 + 0.011 * 0.20
+            pred_gbr_slice = gbr.predict(x_valid_common)# * 0.85 + 0.011 * 0.15
             #pred_lr_slice = lr.predict(x_valid_lr)
             #pred_etr_slice = etr.predict(x_valid_common)
             #pred_rr_slice = rr.predict(x_valid_common)
@@ -165,9 +171,9 @@ class EnsembleModel(ModelBase):
             #pred_rr[d] = pred_rr_slice #* (1.0 - bias_weight ) + bias_weight * bias
             score = pred_lgb_slice * self.d_weight['lgb'] + \
                     pred_xgb_slice * self.d_weight['xgb'] + \
-                    pred_en_slice * self.d_weight['en'] + \
                     pred_gbr_slice * self.d_weight['gbr'] + \
-                    pred_rf_slice * self.d_weight['rf']
+                    pred_rf_slice * self.d_weight['rf'] + \
+                    pred_en_slice * self.d_weight['en']
                     #pred_rr_slice * self.d_weight['rr']
                     #pred_lr_slice * self.d_weight['lr']
                     #pred_etr_slice * self.d_weight['etr']
@@ -250,11 +256,11 @@ class EnsembleModel(ModelBase):
         ## ensemble the best ones of lgb and xgb
         #lgb_result = pd.read_csv('%s/lgb_418_biased.csv' % InputDir)
         #lgb_result = pd.read_csv('%s/lgb_418_biased_nullcount.csv' % InputDir)
-        lgb_result = pd.read_csv('%s/lgb_418_bias_nullcount_taxratio.csv' % InputDir)
-        xgb_result = pd.read_csv('%s/xgb_418_biased.csv' % InputDir)  # parameter base_score equals the mean of target
-        rf_result = pd.read_csv('%s/rf_418_nullcount_optimized.csv' % InputDir)
-        en_result = pd.read_csv('%s/en_418.csv' % InputDir)
-        gbr_result = pd.read_csv('%s/gbr_418.csv' % InputDir)
+        lgb_result = pd.read_csv('%s/lgb_lat_lon.csv' % InputDir)
+        xgb_result = pd.read_csv('%s/xgb_lat_lon.csv' % InputDir)  # parameter base_score equals the mean of target
+        rf_result = pd.read_csv('%s/rf_lat_lon.csv' % InputDir)
+        en_result = pd.read_csv('%s/en_lat_lon.csv' % InputDir)
+        gbr_result = pd.read_csv('%s/gbr_lat_lon.csv' % InputDir)
 
         ensembled_result = pd.DataFrame(index=lgb_result.index)
         ensembled_result['ParcelId'] = lgb_result['ParcelId']

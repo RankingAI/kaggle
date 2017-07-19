@@ -9,6 +9,7 @@ from model.ExtraTreeRegressor import ETR
 from model.SVR import SVR_
 from model.GBREncoding import GBRE
 from model.RidgeRegression import RR
+from model.Keras import KR
 
 class SingleModel:
 
@@ -24,7 +25,8 @@ class SingleModel:
                    'etr': ETR,
                    'svr': SVR_,
                    'gbre': GBRE,
-                   'rr': RR
+                   'rr': RR,
+                   'kr': KR
                    }
 
         start = time.time()
@@ -35,8 +37,8 @@ class SingleModel:
         model.train()
         print('Evaluation %s begins ...' % task)
         model.evaluate()
-        print('Summit %s begins ...' % task)
-        model.submit()
+        #print('Summit %s begins ...' % task)
+        #model.submit()
 
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))
