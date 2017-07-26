@@ -19,21 +19,20 @@ class LGB(ModelBase):
     _params = {
         'max_bin': 8,
         'boosting_type': 'gbdt',
-        'objective': 'regression',
-        'metric': 'mae',
+        'objective': 'regression_l1',
+        'lambda_l1': 0.5,
         'sub_feature': 0.8,
         'bagging_fraction':  0.85,
         'num_leaves': 128,
-        'min_data':  200,
+        'min_data':  150,
         'min_hessian':  0.01,
         'learning_rate': 0.02,
-        'bagging_freq': 20
+        'bagging_freq': 15
     }
 
-    _iter = 120
+    _iter = 500
 
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index']
-    #_l_drop_cols = ['logerror', 'parcelid', 'transactiondate','index','taxdelinquencyyear', 'finishedsquarefeet15', 'finishedsquarefeet6', 'yardbuildingsqft17']
 
     ## rewritten method
     def train(self):
@@ -128,9 +127,9 @@ class LGB(ModelBase):
         self._model = lightgbm.train(self._params, d_cv, self._iter, verbose_eval= True)
 
         self._f_eval_train_model = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__,datetime.now().strftime('%Y%m%d-%H:%M:%S'))
-        #with open(self._f_eval_train_model,'wb') as o_file:
-        #    pickle.dump(self._model,o_file,-1)
-        #o_file.close()
+        with open(self._f_eval_train_model,'wb') as o_file:
+           pickle.dump(self._model,o_file,-1)
+        o_file.close()
 
         self.TrainData = pd.concat([self.TrainData,self.ValidData[self.TrainData.columns]],ignore_index= True) ## ignore_index will reset the index or index will be overlaped
 
@@ -229,9 +228,13 @@ class LGB(ModelBase):
 
     ## predict on test data
     def submit(self):
-
         ## retrain with the whole training data
+        print('data shape before concat ', self.TrainData.shape)
+        self.TrainData = pd.concat([self.TrainData,self.ValidData[self.TrainData.columns]],ignore_index= True) ## ignore_index will reset the index or index will be overlaped
+        print('data shape after concat ', self.TrainData.shape)
+
         self.TrainData = self.TrainData[(self.TrainData['logerror'] > self._low) & (self.TrainData['logerror'] < self._up)]
+        print('data shape after truncated ', self.TrainData.shape)
 
         self.TrainData['longitude'] -= -118600000
         self.TrainData['latitude'] -= 34220000

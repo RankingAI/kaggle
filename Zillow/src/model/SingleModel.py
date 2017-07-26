@@ -33,12 +33,12 @@ class SingleModel:
 
         model = d_model[task](InputDir,OutputDir)
 
-        print('Training %s begins ...' % task)
-        model.train()
-        print('Evaluation %s begins ...' % task)
-        model.evaluate()
-        #print('Summit %s begins ...' % task)
-        #model.submit()
+        #print('Training %s begins ...' % task)
+        #model.train()
+        #print('Evaluation %s begins ...' % task)
+        #model.evaluate()
+        print('Summit %s begins ...' % task)
+        model.submit()
 
         end = time.time()
         print('%s done, time elapsed %ds' % (task,(end - start)))

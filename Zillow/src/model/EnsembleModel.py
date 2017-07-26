@@ -11,11 +11,11 @@ import sys
 class EnsembleModel(ModelBase):
 
     d_weight = {
-        'lgb': 0.25,
-        'xgb': 0.25,
-        'gbr': 0.20,
-        'rf': 0.15,
-        'en': 0.15
+        'lgb': 0.60,
+        'xgb': 0.10,
+        'gbr': 0.10,
+        'rf': 0.10,
+        'en': 0.10
     }
     bias_weight = 0.00
     bias = 0.0110
@@ -43,7 +43,7 @@ class EnsembleModel(ModelBase):
         #lgb_file = '%s/LGB_20170713-12:54:46.pkl' % InputDir
         #lgb_file = '%s/LGB_20170713-20:38:23.pkl' % InputDir ## with nullcount
         #lgb_file = '%s/LGB_20170718-13:23:28.pkl' % InputDir ## with structuretaxvalueratio and landtaxvalueratio
-        lgb_file = '%s/LGB_20170719-01:04:43.pkl' % InputDir ## with latitude and longitude optimized
+        lgb_file = '%s/LGB_20170726-10:43:51.pkl' % InputDir ## with latitude and longitude optimized
         #xgb_file = '%s/XGB_20170713-13:57:47.pkl' % InputDir
         #xgb_file = '%s/XGB_20170718-14:16:19.pkl' % InputDir
         xgb_file = '%s/XGB_20170719-00:04:35.pkl' % InputDir ## with latitude and longitude optimized
@@ -256,7 +256,7 @@ class EnsembleModel(ModelBase):
         ## ensemble the best ones of lgb and xgb
         #lgb_result = pd.read_csv('%s/lgb_418_biased.csv' % InputDir)
         #lgb_result = pd.read_csv('%s/lgb_418_biased_nullcount.csv' % InputDir)
-        lgb_result = pd.read_csv('%s/lgb_lat_lon.csv' % InputDir)
+        lgb_result = pd.read_csv('%s/lgb_lon_lat_optimized.csv' % InputDir)
         xgb_result = pd.read_csv('%s/xgb_lat_lon.csv' % InputDir)  # parameter base_score equals the mean of target
         rf_result = pd.read_csv('%s/rf_lat_lon.csv' % InputDir)
         en_result = pd.read_csv('%s/en_lat_lon.csv' % InputDir)
