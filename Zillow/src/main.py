@@ -1,61 +1,73 @@
-from feat.FeatureEngineering import Preprocessing
-from model.SingleModel import SingleModel
-from model.EnsembleModel import EnsembleModel
-from feat.CountFeature import CountFeature
-from feat.CensusFeature import CensusFeature
-import pandas as pd
-import numpy as np
-import dill as pickle
-import os
+from feat.Preprocess import Preprocess
+from feat.FeatureEngineering import FeatureEngineering
+import gc
 
 if __name__ == '__main__':
 
-    DataDir = '/Users/yuanpingzhou/project/workspace/python/kaggle/Zillow/data'
+    kfold = 4
 
-    ## merge
-    # OutputDir = '%s/p00' % DataDir
-    # train = pd.read_csv('%s/train_2016_v2.csv' % DataDir, parse_dates=['transactiondate'])
-    # test = pd.read_csv('%s/sample_submission.csv' % DataDir)
-    # prop = pd.read_csv('%s/properties_2016.csv' % DataDir)
-    # df_train = train.merge(prop, how='left', on='parcelid')
-    # tmp_test = pd.DataFrame(index= range(len(test)))
-    # tmp_test['parcelid'] = test['ParcelId']
-    # df_test = tmp_test.merge(prop, how='left', on='parcelid')
-    # print(df_test.head(50))
-    # if (os.path.exists(OutputDir) == False):
-    #     os.makedirs(OutputDir)
-    # with open('%s/train.pkl' % OutputDir, 'wb') as o_file:
-    #     pickle.dump(df_train, o_file, -1)
-    # o_file.close()
-    # with open('%s/test.pkl' % OutputDir, 'wb') as o_file:
-    #     pickle.dump(df_test, o_file, -1)
-    # o_file.close()
+    DataDir = '/Users/yuanpingzhou/project/workspace/python/kaggle/Zillow-dev/data'
 
-    ## generate count features
-    #CountFeature.GenerateCountFeature('%s/properties_2016.csv' % DataDir, '%s/CountFeat.pkl' % DataDir)
+    ## preprocess, something to be done before feature engineering
+    OutputDir = '%s/feat/Preprocess' % DataDir
+    tasks = ['MergeData', 'ParseCTB', 'CollectCategories', 'SplitData']
+    Preprocess.run(tasks, 'train', DataDir, OutputDir)
 
-    ## generate census features
-    #CensusFeature.GenerateCensusFeature('%s/properties_2016.csv' % DataDir, '%s/CensusFeat.pkl' % DataDir)
+    ## feature engineering
+    tasks = ['NewFeature', 'FeatureSelection', 'FeatureEncoding','MissingValue']
 
-    ## process
-    # InputDir = '%s/p00' % DataDir
-    # OutputDir = '%s/p3' % DataDir ## add null_count feature
-    # tasks = ['NewFeature','FeatureSelection','FeatureEncoding','MissingValue']
-    # process = Preprocessing(InputDir,OutputDir,Mode= 'pkl')
-    # process.run(tasks)
+    ########## for ensemble model #######
+    #### tasks for l2 test
+    print('\n==== Tasks for l2 test ...')
+    InputDir = '%s/feat/Preprocess' % DataDir
+    OutputDir = '%s/feat/FeatureEngineering/ensemble/test' % DataDir
+    MonthsOfTest = [10,11,12]
+    fe = FeatureEngineering('%s/SplitData' % InputDir, OutputDir)
+    fe.run(tasks, MonthsOfTest)
+    del fe
+    gc.collect()
+    print('\n==== Tasks for l2 test done.')
 
-    # ## single model
-    # InputDir = '%s/p2' % DataDir
-    # OutputDir = '%s/SingleModel2' % DataDir
-    # strategies = ['lgb']
-    # SingleModel.run(strategies,InputDir,OutputDir)
+    #### tasks for l2 valid
+    print('\n==== Tasks for l2 valid ...')
+    InputDir = '%s/feat/Preprocess' % DataDir
+    OutputDir = '%s/feat/FeatureEngineering/ensemble/valid' % DataDir
+    MonthsOfTest = [9]
+    fe = FeatureEngineering('%s/SplitData' % InputDir, OutputDir)
+    fe.run(tasks, MonthsOfTest)
+    del fe
+    gc.collect()
+    print('\n==== Tasks for l2 valid done.')
 
-    ## ensemble model
-    InputDir = '%s/SingleModel2' % DataDir
-    OutputDir = '%s/EnsembleModel2' % DataDir
+    #### tasks for l2 train
+    print('\n==== Tasks for l2 train ...')
+    InputDir = '%s/feat/Preprocess' % DataDir
+    OutputDir = '%s/feat/FeatureEngineering/ensemble/train' % DataDir
+    MonthsOfTest = [8]
+    fe = FeatureEngineering('%s/SplitData' % InputDir, OutputDir)
+    fe.run(tasks, MonthsOfTest)
+    del fe
+    gc.collect()
+    print('\n==== Tasks for l2 train done.')
 
-    ## evaluation ensemble model
-    em = EnsembleModel('%s/p2' % DataDir,OutputDir)
-    #em.EvaluateEnsembleModel(InputDir)
-    # predict test data with ensemble model
-    em.SimpleEnsemble(InputDir,OutputDir)
+    #### tasks for l1 test
+    print('\n==== Tasks for l1 test ...')
+    InputDir = '%s/feat/Preprocess' % DataDir
+    OutputDir = '%s/feat/FeatureEngineering/single/test' % DataDir
+    MonthsOfTest = [7]
+    fe = FeatureEngineering('%s/SplitData' % InputDir, OutputDir)
+    fe.run(tasks, MonthsOfTest)
+    del fe
+    gc.collect()
+    print('\n==== Tasks for l1 test done.')
+
+    ######### for single model ########
+    ## tasks for l1 train, kfold mode
+    for fold in range(kfold):
+        print('\n==== Tasks for l1 train, fold %d ...' % fold)
+        InputDir = '%s/feat/Preprocess' % DataDir
+        OutputDir = '%s/feat/FeatureEngineering/single/train/%s' % (DataDir, fold)
+        MonthsOfTest = [6 - (kfold - fold) + 1]
+        fe = FeatureEngineering('%s/SplitData' % InputDir, OutputDir)
+        fe.run(tasks, MonthsOfTest)
+        print('\n==== Tasks for l1 train, fold %d done.' % fold)
