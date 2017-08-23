@@ -67,7 +67,7 @@ class FeatureEngineering:
         with open('%s/%s.pkl' % (self._InputDir, MonthsOfTest[0]), 'rb') as i_file:
             self.TestData = pickle.load(i_file)
         i_file.close()
-        for i in MonthsOfTest:
+        for i in MonthsOfTest[1: ]:
             with open('%s/%s.pkl' % (self._InputDir, i), 'rb') as i_file:
                 df_tmp = pickle.load(i_file)
                 self.TestData = pd.concat([self.TestData, df_tmp], ignore_index = True)
