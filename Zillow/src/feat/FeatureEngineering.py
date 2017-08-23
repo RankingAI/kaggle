@@ -1,76 +1,92 @@
+import dill as pickle
 import pandas as pd
-import numpy as np
-
 import time
-from feat.MissingValue import MissingValue
+import os
+
 from feat.NewFeature import NewFeature
-from feat.FeatureEncoding import FeatureEncoding
 from feat.FeatureSelection import FeatureSelection
-from utils.DataIO import DataIO
+from feat.MissingValue import MissingValue
+from feat.FeatureEncoding import FeatureEncoding
 
-class Preprocessing:
+class FeatureEngineering:
+    """"""
+    _kfold = 0
 
-    ## private member variables
+    TrainData = pd.DataFrame()
+    TestData = pd.DataFrame()
+
     _InputDir = ''
     _OutputDir = ''
 
-    ## public member variables
-    TrainData = pd.DataFrame()
-    ValidData = pd.DataFrame()
-    TestData = pd.DataFrame()
-
     ## composite classes
-    _data = DataIO
     _newfeat = NewFeature
     _missing = MissingValue
     _encoding = FeatureEncoding
     _select = FeatureSelection
 
-    ## constructor,
-    def __init__(self,InputDir,Outputdir,Mode = 'text'):
-
+    def __init__(self, InputDir, OutputDir, kfold = 4):
+        """"""
+        self._kfold = kfold
         self._InputDir = InputDir
-        self._OutputDir = Outputdir
+        self._OutputDir = OutputDir
 
-        if(Mode == 'pkl'):
-            self.TrainData, self.TestData = self._data.LoadFromPklFile(InputDir)
-        else:
-            self.TrainData, self.TestData = self._data.LoadFromTextFile(InputDir)
-
-        self.TrainData = self.TrainData.reset_index() ## additional columns 'index' will be newed
-
-        df_tmp = self.TrainData[self.TrainData['transactiondate'].dt.month > 6]
-        np.random.seed(2017)
-        msk = np.random.rand(len(df_tmp)) < 0.25
-        self.ValidData = df_tmp[msk]
-        self.TrainData = pd.concat([self.TrainData[self.TrainData['transactiondate'].dt.month <= 6],df_tmp[~msk]],ignore_index= True)
-        #self.TrainData = self.TrainData.reset_index(drop = True)
-        #self.TestData = self.TestData.sample(frac = 1.00)
-
-    ## launch one task
-    def __LaunchTask(self,task):
-
+    def __LaunchTask(self, task, PredCols):
+        """"""
+        print('\n---- Begin to deal with %s' % (task))
         start = time.time()
-        print('\n============== Begin to deal with %s' % (task))
 
-        if (task == 'MissingValue'):
-            self.TrainData,self.ValidData,self.TestData = self._missing.impute((self.TrainData,self.ValidData,self.TestData))
-        elif (task == 'NewFeature'):
-            self.TrainData,self.ValidData,self.TestData = self._newfeat.create((self.TrainData,self.ValidData,self.TestData))
-        elif (task == 'FeatureEncoding'):
-            self.TrainData,self.ValidData,self.TestData = self._encoding.ordinal((self.TrainData,self.ValidData,self.TestData))
-        elif (task == 'FeatureSelection'):
-            self.TrainData,self.ValidData,self.TestData = self._select.select((self.TrainData,self.ValidData,self.TestData))
+        if(task == 'MissingValue'):
+            self.TrainData, self.TestData = self._missing.impute((self.TrainData, self.TestData))
+        elif(task == 'NewFeature'):
+            self.TrainData, self.TestData = self._newfeat.create((self.TrainData, self.TestData), PredCols)
+        elif(task == 'FeatureEncoding'):
+            with open('%s/featmap.pkl' % self._InputDir, 'rb') as i_file:
+                d_feat = pickle.load(i_file)
+            i_file.close()
+            self.TrainData, self.TestData = self._encoding.ordinal((self.TrainData, self.TestData), d_feat)
+        elif(task == 'FeatureSelection'):
+            self.TrainData, self.TestData = self._select.select((self.TrainData, self.TestData))
 
         end = time.time()
-        print('============= Task %s done, time consumed %ds' % (task, (end - start)))
+        print('---- Task %s done, time consumed %ds' % (task, (end - start)))
 
-    ## run all tasks one-by-one
-    def run(self,tasks):
+    def run(self, tasks, MonthsOfTest):
+        """"""
+        print('\nLoad data ...')
+        start = time.time()
+        ## load train
+        with open('%s/1.pkl' % self._InputDir, 'rb') as i_file:
+            self.TrainData = pickle.load(i_file)
+        i_file.close()
+        for i in range(2,MonthsOfTest[0]):
+            with open('%s/%s.pkl' % (self._InputDir, i), 'rb') as i_file:
+                df_tmp = pickle.load(i_file)
+                self.TrainData = pd.concat([self.TrainData, df_tmp], ignore_index = True)
+            i_file.close()
+        ## load test
+        with open('%s/%s.pkl' % (self._InputDir, MonthsOfTest[0]), 'rb') as i_file:
+            self.TestData = pickle.load(i_file)
+        i_file.close()
+        for i in MonthsOfTest[1: ]:
+            with open('%s/%s.pkl' % (self._InputDir, i), 'rb') as i_file:
+                df_tmp = pickle.load(i_file)
+                self.TestData = pd.concat([self.TestData, df_tmp], ignore_index = True)
+            i_file.close()
+        end = time.time()
+        print('Load data done, time consumed %ds ...' % (end - start))
 
+        ## tasks for l2 test
+        print('\nLaunch task ...')
         start = time.time()
         for task in tasks:
-            self.__LaunchTask(task)
-        DataIO.SaveToHdfFile((self.TrainData,self.ValidData,self.TestData),self._OutputDir)
+            self.__LaunchTask(task, MonthsOfTest)
         end = time.time()
-        print('\nAll tasks done, time consumed %ds' % (end - start))
+        if (os.path.exists(self._OutputDir) == False):
+            os.makedirs(self._OutputDir)
+        with open('%s/train.pkl' % self._OutputDir, 'wb') as o_file:
+            pickle.dump(self.TrainData, o_file, -1)
+        o_file.close()
+        with open('%s/test.pkl' % self._OutputDir, 'wb') as o_file:
+            pickle.dump(self.TestData, o_file, -1)
+        o_file.close()
+        print('All tasks done, time consumed %ds ...' % (end - start))

@@ -5,93 +5,94 @@ import time
 import math
 
 class FeatureEncoding:
+    """"""
+    CategoryCols = ['hashottuborspa','taxdelinquencyflag','airconditioningtypeid','architecturalstyletypeid',
+                    'buildingqualitytypeid','decktypeid','heatingorsystemtypeid','pooltypeid10','pooltypeid2','pooltypeid7',
+                    'propertylandusetypeid', 'regionidcity','regionidcounty','regionidneighborhood','regionidzip', 'fipsid',
+                    'tractid', 'blockid']
 
     @classmethod
-    def ordinal(cls,data):
+    def ordinal(cls, data, d_feat):
+        """"""
+        ## filter low ratio for feature values
+        n = len(d_feat)
+        s_feat = set()
+        s_tmp = set()
+        for k in d_feat:
+            if(d_feat[k] > 5):
+                s_feat.add(k)
+            else:
+                s_tmp.add(k.split(':')[0])
+        for k in s_tmp:
+            s_feat.add('%s:less' % k)
+        d_feat = dict((k, v) for (v, k) in enumerate(list(s_feat), start = 0))
+        nn = len(d_feat)
+        print('original size of feature space %d, current size of feature space %d' % (n, nn))
+        #print(d_feat)
 
-        ##
-        #data = cls.__SimpleOrdinal(data)
+        ## update category columns
+        #cls.CategoryCols = [col for col in cls.CategoryCols if(col not in ['rawcensustractandblock', 'fips'])]
+        #cls.CategoryCols.extend(['fipsid', 'tractid', 'blockid'])
 
-        ##
-        data = cls.__OHE(data)
+        df_train, df_test = data
+
+        ## one-hot encode
+        df_train = cls.__OHE(df_train, d_feat)
+        df_test = cls.__OHE(df_test, d_feat)
+        #print('test : %d' % (len(df_test)))
+        #print('train : %d' % (len(df_train)))
+
+        df_train.drop(cls.CategoryCols, axis = 1, inplace = True)
+        df_test.drop(cls.CategoryCols, axis = 1, inplace = True)
+
+        return (df_train, df_test)
+
+    @classmethod
+    def __OHE(cls, data, d_feat):
+        """"""
+        headers = [v[0] for v in sorted(d_feat.items(), key=lambda x: x[1])]
+
+        ohe = cls.__ApplyOHE(data, d_feat)
+        df_ohe = pd.DataFrame(ohe, index = data.index, columns= headers)
+        data = pd.concat([data, df_ohe], axis=1)
 
         return data
 
     @classmethod
-    def __OHE(cls,data):
-
-        df_train, df_valid, df_test = data
-
-        CategoryCols = ['hashottuborspa','taxdelinquencyflag','airconditioningtypeid','architecturalstyletypeid',
-                        'buildingqualitytypeid','decktypeid','fips','heatingorsystemtypeid','pooltypeid10','pooltypeid2','pooltypeid7',
-                        'propertylandusetypeid','rawcensustractandblock','regionidcity','regionidcounty','regionidneighborhood','regionidzip']
-
-        for cc in CategoryCols:
-
-            dt = df_train[cc].dtype.name
-
-            start0 = time.time()
-            ValueCounts = [str(int(v)) if(dt != 'object') else v for v in df_train[cc].value_counts().index.values]
-            ValueCounts.append('missing')
-            SelectedValues = dict((k, v) for (v, k) in enumerate(ValueCounts, start=0))
-            OHTr = cls.__ApplyOH(df_train[cc], SelectedValues,dt)
-            OHVa = cls.__ApplyOH(df_valid[cc],SelectedValues,dt)
-            OHTe = cls.__ApplyOH(df_test[cc],SelectedValues,dt)
-
-            headers = dict((('%s_%s' % (cc,k)),SelectedValues[k]) for k in SelectedValues)
-            tmp = [v[0] for v in sorted(headers.items(), key=lambda x: x[1])]
-            OHDFTr = pd.DataFrame(OHTr, index= df_train.index, columns= tmp)
-            OHDFVa = pd.DataFrame(OHVa, index= df_valid.index, columns= tmp)
-            OHDFTe = pd.DataFrame(OHTe, index= df_test.index, columns= tmp)
-            end0 = time.time()
-            print('ohe, time elapsed %ds' % (end0 - start0))
-
-            start1 = time.time()
-            df_train = pd.concat([df_train, OHDFTr], axis= 1)
-            df_valid = pd.concat([df_valid, OHDFVa], axis= 1)
-            df_test = pd.concat([df_test, OHDFTe], axis= 1)
-            end1 = time.time()
-            print('concat, time elapsed %ds' % (end1 - start1))
-
-            df_train.drop(cc, axis= 1, inplace= True)
-            df_valid.drop(cc, axis= 1, inplace= True)
-            df_test.drop(cc, axis=1, inplace=True)
-            print('Column %s was encoded.' % cc)
-
-        return (df_train, df_valid, df_test)
-
-    @classmethod
-    def __SimpleOrdinal(cls,data):
-
-        df_train, df_test = data
-
-        for c in df_train.dtypes[df_train.dtypes == object].index.values:
-            df_train[c] = (df_train[c] == True)
-        for c in df_test.dtypes[df_test.dtypes == object].index.values:
-            df_test[c] = (df_test[c] == True)
-
-        return (df_train,df_test)
-
-    ## speed-up version of apply function
-    @classmethod
     @numba.jit
-    def __ApplyOH(cls,ColumnValues, headers,dt):
-
-        n = len(ColumnValues)
-        result = np.zeros((n, len(headers)), dtype='int8')
-        if(dt == 'object'):
-            for i in range(n):
-                v = ColumnValues[i]
+    def __ApplyOHE(cls, data, d_feat):
+        """"""
+        n = len(data)
+        result = np.zeros((n, len(d_feat)), dtype='int8')
+        ##
+        d_stat = {}
+        for i in range(n):
+            for col in cls.CategoryCols:
+                v = data.ix[i, col]
+                if(col not in d_stat):
+                    d_stat[col] = {}
                 if(pd.isnull(v)):
-                    result[i,headers['missing']] = 1
-                elif(v in headers):
-                     result[i,headers[v]] = 1
-        else:
-            for i in range(n):
-                v = ColumnValues[i]
-                if(math.isnan(v)):
-                    result[i,headers['missing']] = 1
-                elif(('%d' % int(v)) in headers):
-                    result[i,headers['%d' % int(v)]] = 1
+                    result[i, d_feat['%s:missing' % col]] = 1
+                    if('missing' in d_stat[col]):
+                        d_stat[col]['missing'] += 1
+                    else:
+                        d_stat[col]['missing'] = 1
+                elif('%s:%s' % (col, v) in d_feat):
+                    result[i, d_feat['%s:%s' % (col, v)]] = 1
+                    if('hit' in d_stat[col]):
+                        d_stat[col]['hit'] += 1
+                    else:
+                        d_stat[col]['hit'] = 1
+                else:
+                    result[i, d_feat['%s:less' % col]] = 1
+                    if('less' in d_stat[col]):
+                        d_stat[col]['less'] += 1
+                    else:
+                        d_stat[col]['less'] = 1
+
+        ## check
+        for col in d_stat:
+            if(np.sum(list(d_stat[col].values())) != n):
+                print('Encoding for column %s error, %d : %d. ' % (col, np.sum(list(d_stat[col].values())),n))
 
         return result
