@@ -11,6 +11,8 @@ class FeatureEncoding:
                     'propertylandusetypeid', 'regionidcity','regionidcounty','regionidneighborhood','regionidzip', 'fipsid',
                     'tractid', 'blockid']
 
+    MinThresholdFeat = 20
+
     @classmethod
     def ordinal(cls, data, d_feat):
         """"""
@@ -19,7 +21,7 @@ class FeatureEncoding:
         s_feat = set()
         s_tmp = set()
         for k in d_feat:
-            if(d_feat[k] > 5):
+            if(d_feat[k] > cls.MinThresholdFeat):
                 s_feat.add(k)
             else:
                 s_tmp.add(k.split(':')[0])

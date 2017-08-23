@@ -42,7 +42,7 @@ class Preprocess:
 
         return
 
-    ## split rawcensustractandblock into census, tract and block
+    ## split rawcensustractandblock into fips, tract and block
     @classmethod
     def __ParseCTB(cls, InputDir, OutputDir, mode):
         """"""

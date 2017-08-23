@@ -4,8 +4,9 @@ import abc
 import time
 import os
 from datetime import datetime
+import dill as pickle
 
-from utils.DataIO import DataIO
+from util.DataIO import DataIO
 
 class ModelBase(object):
 
@@ -17,35 +18,36 @@ class ModelBase(object):
 
     InputDir = ''
     OutputDir = ''
-    _f_eval_train_model = ''
 
-    _data = DataIO
-    _l_train_columns = []
-    _model = ''
-    _sub = pd.DataFrame()
-
-    _l_test_predict_columns = ['201610', '201611', '201612', '201710', '201711', '201712']
-    _l_valid_predict_columns = ['201607', '201608', '201609', '201610', '201611', '201612']
-    _l_selected_features = []
+    l_test_predict_columns = []
 
     ## outliers
-    _low = -0.4
-    _up = 0.418
+    MinLogError = -0.4
+    MaxLogError = 0.418
 
-    def __init__(self,InputDir,OutputDir):
+    def __init__(self, PredCols, InputDir,OutputDir):
+
+        self.l_test_predict_columns = PredCols
 
         self.InputDir = InputDir
         self.OutputDir = OutputDir
 
-
         if(os.path.exists(OutputDir) == False):
             os.makedirs(OutputDir)
 
-        self.TrainData = self._data.LoadFromHdfFile(self.InputDir,'train')
-        self.ValidData = self._data.LoadFromHdfFile(self.InputDir,'valid')
+        with open('%s/train.pkl' % self.InputDir, 'rb') as i_file:
+            self.TrainData = pickle.load(i_file)
+        i_file.close()
+        with open('%s/test.pkl' % self.InputDir, 'rb') as i_file:
+            self.TestData = pickle.load(i_file)
+        i_file.close()
 
     @abc.abstractmethod
-    def evaluate(self):
+    def __fit(self):
+        """"""
+
+    @abc.abstractmethod
+    def __predict(self):
         """"""
 
     @abc.abstractmethod

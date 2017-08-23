@@ -10,8 +10,6 @@ from feat.FeatureEncoding import FeatureEncoding
 
 class FeatureEngineering:
     """"""
-    _kfold = 0
-
     TrainData = pd.DataFrame()
     TestData = pd.DataFrame()
 
@@ -24,9 +22,8 @@ class FeatureEngineering:
     _encoding = FeatureEncoding
     _select = FeatureSelection
 
-    def __init__(self, InputDir, OutputDir, kfold = 4):
+    def __init__(self, InputDir, OutputDir):
         """"""
-        self._kfold = kfold
         self._InputDir = InputDir
         self._OutputDir = OutputDir
 
@@ -67,7 +64,7 @@ class FeatureEngineering:
         with open('%s/%s.pkl' % (self._InputDir, MonthsOfTest[0]), 'rb') as i_file:
             self.TestData = pickle.load(i_file)
         i_file.close()
-        for i in MonthsOfTest[1: ]:
+        for i in MonthsOfTest[1:]:
             with open('%s/%s.pkl' % (self._InputDir, i), 'rb') as i_file:
                 df_tmp = pickle.load(i_file)
                 self.TestData = pd.concat([self.TestData, df_tmp], ignore_index = True)
@@ -75,7 +72,7 @@ class FeatureEngineering:
         end = time.time()
         print('Load data done, time consumed %ds ...' % (end - start))
 
-        ## tasks for l2 test
+        ## tasks
         print('\nLaunch task ...')
         start = time.time()
         for task in tasks:
