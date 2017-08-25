@@ -11,7 +11,7 @@ class FeatureEncoding:
                     'propertylandusetypeid', 'regionidcity','regionidcounty','regionidneighborhood','regionidzip', 'fipsid',
                     'tractid', 'blockid']
 
-    MinThresholdFeat = 20
+    MinThresholdFeat = 10
 
     @classmethod
     def ordinal(cls, data, d_feat):

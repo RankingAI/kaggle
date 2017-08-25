@@ -2,6 +2,8 @@ import time
 import lightgbm
 import pandas as pd
 import numpy as np
+import dill as pickle
+from datetime import datetime
 from model.ModelBase import ModelBase
 
 class LGB(ModelBase):
@@ -14,13 +16,13 @@ class LGB(ModelBase):
         'sub_feature': 0.80,
         'bagging_fraction':  0.85,
         'num_leaves': 32,
-        'min_data':  50,
+        'min_data':  100,
         'min_hessian':  0.01,
         'learning_rate': 0.02,
         'bagging_freq': 10
     }
 
-    _iter = 500
+    _iter = 1400
 
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate']
 
@@ -42,13 +44,24 @@ class LGB(ModelBase):
         ## ---- new features -----
         ## lon/lat transformed
         TrainData['longitude'] -= -118600000
+        TrainData['lat1'] = TrainData['latitude'] - 34500000
         TrainData['latitude'] -= 34220000
+
         ## add structure tax ratio
         TrainData['structuretaxvalueratio'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         TrainData.loc[TrainData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
         ## add land tax ratio
         TrainData['landtaxvalueratio'] = TrainData['landtaxvaluedollarcnt'] / TrainData['taxvaluedollarcnt']
         TrainData.loc[TrainData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+
+        ##
+
+        ##
+        #TrainData['N-ValueRatio'] = TrainData['taxvaluedollarcnt'] / TrainData['taxamount']
+        #TrainData['N-LivingAreaProp'] = TrainData['calculatedfinishedsquarefeet'] / TrainData['lotsizesquarefeet']
+        #TrainData['N-ValueProp'] = TrainData['structuretaxvaluedollarcnt'] / TrainData['landtaxvaluedollarcnt']
+        #TrainData['N-TaxScore'] = TrainData['taxvaluedollarcnt'] * TrainData['taxamount']
+
         print('data shape after feature space being extended : ', TrainData.shape)
 
         X = TrainData.drop(self._l_drop_cols,axis= 1)
@@ -75,13 +88,23 @@ class LGB(ModelBase):
         ## ---- new features ----
         ## lon/lat transformed
         TestData['longitude'] -= -118600000
+        TestData['lat1'] = TestData['latitude'] - 34500000
         TestData['latitude'] -= 34220000
+
         ## add structure tax ratio
         TestData['structuretaxvalueratio'] = TestData['structuretaxvaluedollarcnt'] / TestData['taxvaluedollarcnt']
         TestData.loc[TestData['structuretaxvalueratio'] < 0, 'structuretaxvalueratio'] = -1
         ## add land tax ratio
         TestData['landtaxvalueratio'] = TestData['landtaxvaluedollarcnt'] / TestData['taxvaluedollarcnt']
         TestData.loc[TestData['landtaxvalueratio'] < 0, 'landtaxvalueratio'] = -1
+
+        ##
+
+        ##
+        #TestData['N-ValueRatio'] = TestData['taxvaluedollarcnt'] / TestData['taxamount']
+        #TestData['N-LivingAreaProp'] = TestData['calculatedfinishedsquarefeet'] / TestData['lotsizesquarefeet']
+        #TestData['N-ValueProp'] = TestData['structuretaxvaluedollarcnt'] / TestData['landtaxvaluedollarcnt']
+        #TestData['N-TaxScore'] = TestData['taxvaluedollarcnt'] * TestData['taxamount']
 
         print('data shape after feature space being extended : ', TestData.shape)
 
@@ -102,6 +125,16 @@ class LGB(ModelBase):
             ## fill truth
             df_tmp = TestData[TestData['transactiondate'].dt.month == mth]
             truth_test.loc[df_tmp.index, '%s' % mth] = df_tmp['logerror']
+
+        # ## save for predict
+        # OutputFile = '{0}/{1}_{2}.pkl'.format(self.OutputDir, self.__class__.__name__, datetime.now().strftime('%Y%m%d-%H:%M:%S'))
+        # with open(OutputFile, 'wb') as o_file:
+        #    pickle.dump(pred_test, o_file, -1)
+        # o_file.close()
+        # ## save for truth
+        # with open('%s/truth.pkl' % self.OutputDir, 'wb') as o_file:
+        #     pickle.dump(truth_test, o_file, -1)
+        # o_file.close()
 
         score = 0.0
         ae = np.abs(pred_test - truth_test)
