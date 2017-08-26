@@ -44,6 +44,30 @@ class SingleModel:
 
         return
 
+    ## train 1-6, valid 7-9, test 10-12(provided)
+    @staticmethod
+    def __LaunchTraining1(task, kfold, InputDir, OutputDir):
+        """"""
+        d_model = {
+            'lgb': LGB,
+            'en' : EN,
+            'rf' : RF
+                   }
+
+        TrainInputDir = '%s/train' % InputDir
+        model = d_model[task]([7, 8, 9], TrainInputDir, OutputDir)
+        ValidMAE = model.train()
+
+        TestInputDir = '%s/test' % InputDir
+        model = d_model[task]([10, 11, 12], TestInputDir, OutputDir)
+        TestMAE = model.train()
+
+        print('\n==== Summary for single model %s ====\n' % task)
+        print('MAE(valid) %.6f, MAE(test) %.6f' % (ValidMAE, TestMAE))
+
+        return
+
+    ## train 1-6, valid(7/8/9)
     @staticmethod
     def __LaunchTraining2(task, kfold, InputDir, OutputDir):
 
@@ -69,6 +93,7 @@ class SingleModel:
 
         return
 
+    ## train 1-9, valid 10-12(provided)
     @staticmethod
     def __LaunchTraining3(task, kfold, InputDir, OutputDir):
 
@@ -96,6 +121,6 @@ class SingleModel:
 
         start = time.time()
         for s in strategies:
-            cls.__LaunchTraining3(s, kfold, InputDir, OutputDir)
+            cls.__LaunchTraining1(s, kfold, InputDir, OutputDir)
         end = time.time()
         print('\nAll tasks done, time consumed %ds' % (end - start))

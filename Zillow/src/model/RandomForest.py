@@ -10,7 +10,7 @@ class RF(ModelBase):
     _l_drop_cols = ['logerror', 'parcelid', 'transactiondate']
 
     _iter = 180
-    _depth = 25
+    _depth = 40
 
     def train(self):
         """"""

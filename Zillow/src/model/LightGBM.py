@@ -22,11 +22,12 @@ class LGB(ModelBase):
         'bagging_freq': 10
     }
 
-    _iter = 1400
+    _iter = 1200
 
-    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate']
+    _l_drop_cols = ['logerror', 'parcelid', 'transactiondate', 'lastgap']
 
     def train(self):
+
         """"""
         self.__fit()
 
