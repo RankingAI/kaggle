@@ -6,7 +6,8 @@ import psutil
 from contextlib import contextmanager
 import threading
 
-DataBaseDir = '/Users/yuanpingzhou/project/workspace/python/kaggle/FashionFGVC5/data'
+#DataBaseDir = '/Users/yuanpingzhou/project/workspace/python/kaggle/FashionFGVC5/data'
+DataBaseDir = '../data'
 
 ## timer function
 @contextmanager
@@ -42,11 +43,9 @@ for mod in ['train', 'validation', 'test']:
     ImageRootOutputDir = '%s/raw/images/%s' % (DataBaseDir, mod)
     if(os.path.exists(ImageRootOutputDir) == False):
         os.makedirs(ImageRootOutputDir)
-    FailedRootOutputDir = '%s/raw/failed/%s' % (DataBaseDir, mod)
-    if (os.path.exists(FailedRootOutputDir) == False):
-        os.makedirs(FailedRootOutputDir)
 
-    json_data['images'] = json_data['images'][:51]
+    # debug
+    #json_data['images'] = json_data['images'][:51]
 
     class DownloadThread(threading.Thread):
         def __init__(self, t, low, high):
@@ -54,23 +53,19 @@ for mod in ['train', 'validation', 'test']:
             self.no = t
             self.low = low
             self.high = high
-            self.FailedFile = '%s/%s.txt' % (FailedRootOutputDir, self.no)
             ## save images
             self.ImageOutputDir = '%s/%s' % (ImageRootOutputDir, self.no)
             if (os.path.exists(self.ImageOutputDir) == False):
                 os.makedirs(self.ImageOutputDir)
 
         def run(self):
-            with open(self.FailedFile, 'w') as w_file:
-                for i in range(self.low, self.high):
-                    try:
-                        #print('%s/%s.jpg' % (ImageOutputDir, json_data['images'][i]['imageId']))
-                        wget.download(json_data['images'][i]['url'], out= '%s/%s.jpg' % (self.ImageOutputDir, json_data['images'][i]['imageId']))
-                        print('%s, %s, %s, %s' % (self.no, i, self.low, self.high))
-                    except:
-                        w_file.write('%s,%s\n' % (json_data['images'][i]['url'], json_data['images'][i]['imageId']))
+            for i in range(self.low, self.high):
+                try:
+                    wget.download(json_data['images'][i]['url'], out= '%s/%s.jpg' % (self.ImageOutputDir, json_data['images'][i]['imageId']))
+                except:
+                    continue
 
-    num_thread = 4
+    num_thread = 32
     block_size = int(len(json_data['images'])/num_thread)
     print(block_size)
     threads = []
@@ -84,5 +79,3 @@ for mod in ['train', 'validation', 'test']:
         thre.start()
     for thre in threads:
         thre.join()
-
-    break
