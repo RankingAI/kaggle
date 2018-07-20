@@ -5,12 +5,14 @@ import json
 import threading
 import wget
 
-DataBaseDir = '/home/joe/project/workspace/python/kaggle/FashionFGVC5/data'
+#DataBaseDir = '/home/joe/project/workspace/python/kaggle/FashionFGVC5/data'
+DataBaseDir = '../data'
 success_download = set()
 for i in range(32):
     SubDir = '%s/raw/images/train/%s' % (DataBaseDir, i)
-    ret = [im for im in os.listdir(SubDir) if(im.endswith('.jpg'))]
-    success_download.update(ret)
+    if(os.path.exists(SubDir) == True):
+        ret = [int(im.split('.')[0]) for im in os.listdir(SubDir) if(im.endswith('.jpg'))]
+        success_download.update(ret)
 
 ## load data
 json_file = '%s/raw/%s.json' % (DataBaseDir, 'train')
