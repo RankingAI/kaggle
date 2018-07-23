@@ -1,0 +1,874 @@
+
+# coding: utf-8
+
+
+
+
+# This Python 3 environment comes with many helpful analytics libraries installed
+# It is defined by the kaggle/python docker image: https://github.com/kaggle/docker-python
+# For example, here's several helpful packages to load in 
+
+import numpy as np # linear algebra
+import pandas as pd # data processing, CSV file I/O (e.g. pd.read_csv)
+
+# Input data files are available in the "../input/" directory.
+# For example, running this (by clicking run or pressing Shift+Enter) will list the files in the input directory
+
+# Suppress warnings from pandas
+import warnings
+warnings.filterwarnings('ignore')
+
+# Any results you write to the current directory are saved as output.
+
+
+
+
+
+import matplotlib.pyplot as plt
+import lightgbm as lgb
+import gc
+from sklearn.model_selection import KFold, cross_val_score
+from sklearn.metrics import confusion_matrix,precision_recall_curve,auc,roc_auc_score,roc_curve,recall_score,classification_report
+from sklearn.preprocessing import LabelEncoder
+
+
+
+# Training data
+app_train = pd.read_csv('data/application_train.csv')
+print('Training data shape: ', app_train.shape)
+
+
+
+# Testing data features
+app_test = pd.read_csv('data/application_test.csv')
+print('Testing data shape: ', app_test.shape)
+
+
+
+app_train['TARGET'].value_counts()
+print('The proportion of label 1 is %.2f' % (sum(app_train['TARGET']==1)/app_train.shape[0]*100), '%')
+
+
+
+
+# 该函数确定数据集每一列的缺失值个数及占比
+def missing_values_table(df):
+    #Total missing values
+    mis_val = df.isnull().sum()
+    
+    #Percentages of missing values
+    mis_val_percent = df.isnull().sum() * 100 / df.shape[0]
+    
+    # Make a table with the results
+    mis_val_table = pd.concat([mis_val, mis_val_percent], axis = 1)
+    
+    # Rename the columns
+    mis_val_table_rename_columns = mis_val_table.rename(columns = {0: 'Missing Values', 1: 'Percentage'})
+    
+    #Sort the table
+    mis_val_table_rename_columns = mis_val_table_rename_columns[
+        mis_val_table_rename_columns.iloc[:, 1]!=0].sort_values('Percentage', ascending=False).round(1) #round(1) to keep only one decimal
+    
+    #Print information
+    print('The total dataframe has ' + str(df.shape[1]) + ' columns')
+    print('There are ' + str(mis_val_table_rename_columns.shape[0]) + ' columns')
+    
+    return mis_val_table_rename_columns
+
+
+
+
+
+missing_values = missing_values_table(app_train)
+
+
+
+# 该部分将'object'类型的columns转换为数值型，One-hot
+
+app_train = pd.get_dummies(app_train)
+app_test = pd.get_dummies(app_test)
+
+print('Training Features shape: ', app_train.shape)
+print('Testing Features shape: ', app_test.shape)
+
+
+
+
+
+# 对齐train和test的数据，丢掉无用的列
+train_labels = app_train['TARGET']
+
+app_train, app_test = app_train.align(app_test, join = 'inner', axis = 1)
+
+app_train['TARGET'] = train_labels
+
+print('Training Features shape: ', app_train.shape)
+print('Testing Features shape: ', app_test.shape)
+
+
+
+
+
+# 删除部分列的异常值
+app_train['DAYS_EMPLOYED_ANOM'] = app_train['DAYS_EMPLOYED'] == 365243
+
+app_train['DAYS_EMPLOYED'].replace({365243: np.nan}, inplace = True)
+
+app_test['DAYS_EMPLOYED_ANOM'] = app_test['DAYS_EMPLOYED'] == 365243
+
+app_test['DAYS_EMPLOYED'].replace({365243: np.nan}, inplace = True)
+
+print('Training Features shape: ', app_train.shape)
+print('Testing Features shape: ', app_test.shape)
+
+
+
+
+
+# 查看数据的Correlations
+
+correlations = app_train.corr()['TARGET'].sort_values()
+
+# 输出最相关的30个特征
+print('Most Positive Correlations:\n', correlations.tail(15))
+print('\nMost Negative Correlations:\n', correlations.head(15))
+
+
+
+
+
+#该部分加入domain特征
+
+app_train_domain = app_train.copy()
+app_test_domain = app_test.copy()
+
+app_train_domain['CREDIT_INCOME_PERCENT'] = app_train_domain['AMT_CREDIT'] / app_train_domain['AMT_INCOME_TOTAL']
+app_train_domain['ANNUITY_INCOME_PERCENT'] = app_train_domain['AMT_ANNUITY'] / app_train_domain['AMT_INCOME_TOTAL']
+app_train_domain['CREDIT_TERM'] = app_train_domain['AMT_ANNUITY'] / app_train_domain['AMT_CREDIT']
+app_train_domain['DAYS_EMPLOYED_PERCENT'] = app_train_domain['DAYS_EMPLOYED'] / app_train_domain['DAYS_BIRTH']
+
+app_test_domain['CREDIT_INCOME_PERCENT'] = app_test_domain['AMT_CREDIT'] / app_test_domain['AMT_INCOME_TOTAL']
+app_test_domain['ANNUITY_INCOME_PERCENT'] = app_test_domain['AMT_ANNUITY'] / app_test_domain['AMT_INCOME_TOTAL']
+app_test_domain['CREDIT_TERM'] = app_test_domain['AMT_ANNUITY'] / app_test_domain['AMT_CREDIT']
+app_test_domain['DAYS_EMPLOYED_PERCENT'] = app_test_domain['DAYS_EMPLOYED'] / app_test_domain['DAYS_BIRTH']
+
+print('Domain Training Features shape: ', app_train_domain.shape)
+print('Domain Testing Features shape: ', app_test_domain.shape)
+
+
+# ** Manual Feature Engineering (Part 1) : bureau.csv**
+# 
+# 分为四步：
+# 2. 将bureau的数值类型特征抽取出来
+# 3. 将bureau的字符类型特征抽取出来
+# 4. 将上述特征加入train和test
+
+
+# Read in bureau
+bureau = pd.read_csv('data/bureau.csv')
+
+
+# Step 2: 将数值特征的抽取出来
+
+def agg_numeric(df, group_var, df_name):
+    """Aggregates the numeric values in a dataframe. This can
+    be used to create features for each instance of the grouping variable.
+    
+    Parameters
+    --------
+        df (dataframe): 
+            the dataframe to calculate the statistics on
+        group_var (string): 
+            the variable by which to group df
+        df_name (string): 
+            the variable used to rename the columns
+        
+    Return
+    --------
+        agg (dataframe): 
+            a dataframe with the statistics aggregated for 
+            all numeric columns. Each instance of the grouping variable will have 
+            the statistics (mean, min, max, sum; currently supported) calculated. 
+            The columns are also renamed to keep track of features created.
+    
+    """
+    
+    # First calculate counts
+    counts = pd.DataFrame(df.groupby(group_var, as_index = False)[df.columns[1]].count()).rename(columns = {df.columns[1]: '%s_counts' % df_name})
+    
+    # Group by the specified variable and calculate the statistics
+    agg = df.groupby(group_var).agg(['mean', 'max', 'min', 'sum']).reset_index()
+    
+    # Need to create new column names
+    columns = [group_var]
+    
+    # Iterate through the variables names
+    for var in agg.columns.levels[0]:
+        # Skip the grouping variable
+        if var != group_var:
+            # Iterate through the stat names
+            for stat in agg.columns.levels[1][:-1]:
+                # Make a new column name for the variable and stat
+                columns.append('%s_%s_%s' % (df_name, var, stat))
+              
+    #  Rename the columns
+    agg.columns = columns
+    
+    # Merge with the counts
+    agg = agg.merge(counts, on = group_var, how = 'left')
+    
+    return agg
+
+bureau_agg = agg_numeric(bureau.drop(columns = ['SK_ID_BUREAU']), group_var = 'SK_ID_CURR', df_name = 'bureau')
+
+
+# 第3步：将字符型特征的抽取出来
+
+def count_categorical(df, group_var, df_name):
+    """Computes counts and normalized counts for each observation
+    of `group_var` of each unique category in every categorical variable
+    
+    Parameters
+    --------
+    df : dataframe 
+        The dataframe to calculate the value counts for.
+        
+    group_var : string
+        The variable by which to group the dataframe. For each unique
+        value of this variable, the final dataframe will have one row
+        
+    df_name : string
+        Variable added to the front of column names to keep track of columns
+
+    
+    Return
+    --------
+    categorical : dataframe
+        A dataframe with counts and normalized counts of each unique category in every categorical variable
+        with one row for every unique value of the `group_var`.
+        
+    """
+    
+    # Select the categorical columns
+    categorical = pd.get_dummies(df.select_dtypes('object'))
+
+    # Make sure to put the identifying id on the column
+    categorical[group_var] = df[group_var]
+
+    # Groupby the group var and calculate the sum and mean
+    categorical = categorical.groupby(group_var).agg(['sum', 'mean'])
+    
+    column_names = []
+    
+    # Iterate through the columns in level 0
+    for var in categorical.columns.levels[0]:
+        # Iterate through the stats in level 1
+        for stat in ['count', 'count_norm']:
+            # Make a new column name
+            column_names.append('%s_%s_%s' % (df_name, var, stat))
+    
+    categorical.columns = column_names
+    
+    return categorical
+
+bureau_counts = count_categorical(bureau, group_var = 'SK_ID_CURR', df_name = 'bureau')
+
+
+
+
+# Step 4: 将上述特征加入到train和test中
+# 将bureau_agg加入到train和test中
+train = app_train_domain.merge(bureau_agg, on = 'SK_ID_CURR', how = 'left')
+test = app_test_domain.merge(bureau_agg, on = 'SK_ID_CURR', how = 'left')
+
+
+# 将bureau_counts加入到train和test中
+train = train.merge(bureau_counts, on = 'SK_ID_CURR', how = 'left')
+test = test.merge(bureau_counts, on = 'SK_ID_CURR', how = 'left')
+
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+# ** Manual Feature Engineering (Part 2) : bureau_balance.csv**
+# 
+# 分为三步：
+# 1. 将bureau_balance的数值类型特征抽取出来，合并到SK_ID_BUREAU下
+# 2. 将bureau_balance的字符类型特征抽取出来，合并到SK_ID_BUREAU下
+# 3. 将合并的SK_ID_BUREAU按照数值类型抽取特征，加入train和test
+
+
+# Read in bureau balance
+bureau_balance = pd.read_csv('data/bureau_balance.csv')
+
+# Step 1: 将数值特征的抽取出来
+bureau_balance_agg = agg_numeric(bureau_balance, group_var = 'SK_ID_BUREAU', df_name = 'bureau_balance')
+
+
+
+# Step 2: 将字符特征的抽取出来
+bureau_balance_counts = count_categorical(bureau_balance, group_var = 'SK_ID_BUREAU', df_name = 'bureau_balance')
+
+
+
+#将上述特征按照 'SK_ID_BUREAU'合并
+bureau_by_loan = bureau_balance_agg.merge(bureau_balance_counts, right_index = True, left_on = 'SK_ID_BUREAU', how = 'outer')
+
+
+
+# Merge to include the SK_ID_CURR
+bureau_by_loan = bureau_by_loan.merge(bureau[['SK_ID_BUREAU', 'SK_ID_CURR']], on = 'SK_ID_BUREAU', how = 'left')
+
+
+# Step 3: 将合并后的bureau_by_loa按照'SK_ID_CURR'抽取特征
+bureau_balance_by_client = agg_numeric(bureau_by_loan.drop(columns = ['SK_ID_BUREAU']), group_var = 'SK_ID_CURR', df_name = 'client')
+bureau_balance_by_client.head()
+
+train = train.merge(bureau_balance_by_client, on = 'SK_ID_CURR', how = 'left')
+test = test.merge(bureau_balance_by_client, on = 'SK_ID_CURR', how = 'left')
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+gc.enable()
+del app_train, app_test, app_train_domain, app_test_domain, bureau, bureau_balance, bureau_agg, bureau_balance_agg, bureau_balance_counts, bureau_by_loan, bureau_balance_by_client
+gc.collect()
+
+
+# ** Manual Feature Engineering (Part 3) : previous_application.csv**
+# 
+# 分为三步：
+# 1. 将previous_application的数值类型特征抽取出来
+# 2. 将previous_application的字符类型特征抽取出来
+# 3. 将抽取的特征加入train和test
+
+
+previous = pd.read_csv('data/previous_application.csv')
+previous.head()
+
+
+
+# 抽取数值型特征
+previous_agg = agg_numeric(previous.drop(columns = ['SK_ID_PREV']), group_var = 'SK_ID_CURR', df_name = 'previous_apply')
+previous_agg.head()
+
+
+
+# 抽取字符型特征
+previous_counts = count_categorical(previous, group_var = 'SK_ID_CURR', df_name = 'previous_apply')
+previous_counts.head()
+
+
+print('Previous aggregated shape: ', previous_agg.shape)
+print('Previous categorical counts shape: ', previous_counts.shape)
+
+
+
+# Merge in the previous information
+print('Before Merge train.shape: ', train.shape)
+print('Before Merge test.shape: ', test.shape)
+
+train = train.merge(previous_counts, on ='SK_ID_CURR', how = 'left')
+train = train.merge(previous_agg, on = 'SK_ID_CURR', how = 'left')
+
+test = test.merge(previous_counts, on ='SK_ID_CURR', how = 'left')
+test = test.merge(previous_agg, on = 'SK_ID_CURR', how = 'left')
+
+print('After Merge train.shape: ', train.shape)
+print('After Merge test.shape: ', test.shape)
+
+# Remove variables to free memory
+gc.enable()
+del previous, previous_agg, previous_counts
+gc.collect()
+
+
+
+def remove_missing_columns(train, test, threshold = 90):
+    # Calculate missing stats for train and test (remember to calculate a percent!)
+    train_miss = pd.DataFrame(train.isnull().sum())
+    train_miss['percent'] = 100 * train_miss[0] / len(train)
+    
+    test_miss = pd.DataFrame(test.isnull().sum())
+    test_miss['percent'] = 100 * test_miss[0] / len(test)
+    
+    # list of missing columns for train and test
+    missing_train_columns = list(train_miss.index[train_miss['percent'] > threshold])
+    missing_test_columns = list(test_miss.index[test_miss['percent'] > threshold])
+    
+    # Combine the two lists together
+    missing_columns = list(set(missing_train_columns + missing_test_columns))
+    
+    # Print information
+    print('There are %d columns with greater than %d%% missing values.' % (len(missing_columns), threshold))
+    
+    # Drop the missing columns and return
+    train = train.drop(columns = missing_columns)
+    test = test.drop(columns = missing_columns)
+    
+    return train, test
+
+train, test = remove_missing_columns(train, test)
+
+
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+# ** Manual Feature Engineering (Part 4) : POS_CASH_balance.csv**
+
+
+def aggregate_client(df, group_vars, df_names):
+    """Aggregate a dataframe with data at the loan level 
+    at the client level
+    
+    Args:
+        df (dataframe): data at the loan level
+        group_vars (list of two strings): grouping variables for the loan 
+        and then the client (example ['SK_ID_PREV', 'SK_ID_CURR'])
+        names (list of two strings): names to call the resulting columns
+        (example ['cash', 'client'])
+        
+    Returns:
+        df_client (dataframe): aggregated numeric stats at the client level. 
+        Each client will have a single row with all the numeric data aggregated
+    """
+    
+    # Aggregate the numeric columns
+    df_agg = agg_numeric(df, group_var = group_vars[0], df_name = df_names[0])
+    
+    # If there are categorical variables
+    if any(df.dtypes == 'object'):
+    
+        # Count the categorical columns
+        df_counts = count_categorical(df, group_var = group_vars[0], df_name = df_names[0])
+
+        # Merge the numeric and categorical
+        df_by_loan = df_counts.merge(df_agg, on = group_vars[0], how = 'outer')
+
+        gc.enable()
+        del df_agg, df_counts
+        gc.collect()
+
+        # Merge to get the client id in dataframe
+        df_by_loan = df_by_loan.merge(df[[group_vars[0], group_vars[1]]], on = group_vars[0], how = 'left')
+
+        # Remove the loan id
+        df_by_loan = df_by_loan.drop(columns = [group_vars[0]])
+
+        # Aggregate numeric stats by column
+        df_by_client = agg_numeric(df_by_loan, group_var = group_vars[1], df_name = df_names[1])
+
+        
+    # No categorical variables
+    else:
+        # Merge to get the client id in dataframe
+        df_by_loan = df_agg.merge(df[[group_vars[0], group_vars[1]]], on = group_vars[0], how = 'left')
+        
+        gc.enable()
+        del df_agg
+        gc.collect()
+        
+        # Remove the loan id
+        df_by_loan = df_by_loan.drop(columns = [group_vars[0]])
+        
+        # Aggregate numeric stats by column
+        df_by_client = agg_numeric(df_by_loan, group_var = group_vars[1], df_name = df_names[1])
+        
+    # Memory management
+    gc.enable()
+    del df, df_by_loan
+    gc.collect()
+
+    return df_by_client
+
+
+
+cash = pd.read_csv('data/POS_CASH_balance.csv')
+cash.head()
+
+
+cash_by_client = aggregate_client(cash, group_vars = ['SK_ID_PREV', 'SK_ID_CURR'], df_names = ['cash', 'client_PC'])
+cash_by_client.head()
+
+
+print('Cash by Client Shape: ', cash_by_client.shape)
+train = train.merge(cash_by_client, on = 'SK_ID_CURR', how = 'left')
+test = test.merge(cash_by_client, on = 'SK_ID_CURR', how = 'left')
+
+gc.enable()
+del cash, cash_by_client
+gc.collect()
+
+
+train, test = remove_missing_columns(train, test)
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+def train_with_cv(train_data, test_data, n_folds, seed_varying):
+    train_ids = train_data['SK_ID_CURR']
+    test_ids = test_data['SK_ID_CURR']
+    
+    train_labels = train_data['TARGET']
+    
+    train_features = train_data.drop(columns = ['SK_ID_CURR', 'TARGET'])
+    test_features = test_data.drop(columns = ['SK_ID_CURR'])
+    
+    feature_names = list(train_features.columns)
+    feature_importance_values = np.zeros(len(feature_names))
+    
+    train_features = np.array(train_features)
+    test_features = np.array(test_features)
+    
+    k_fold = KFold(n_splits = n_folds, shuffle = True, random_state = 50+seed_varying)
+    
+    test_pred = np.zeros(test_features.shape[0])
+    out_of_fold = np.zeros(train_features.shape[0])
+    
+    valid_scores = []
+    train_scores = []
+    
+    for train_indices, valid_indices in k_fold.split(train_features):
+        x_train, y_train = train_features[train_indices], train_labels[train_indices]
+        x_valid, y_valid = train_features[valid_indices], train_labels[valid_indices]
+        
+        model = lgb.LGBMClassifier(n_estimators=10000, objective = 'binary', 
+                                   class_weight = 'balanced', learning_rate = 0.05, 
+                                   reg_alpha = 0.1, reg_lambda = 0.1, 
+                                   subsample = 0.8, n_jobs = -1, random_state = 50+seed_varying)
+        
+        model.fit(x_train, y_train, eval_metric = 'auc',
+                  eval_set = [(x_valid, y_valid), (x_train, y_train)],
+                  eval_names = ['valid', 'train'], categorical_feature = 'auto',
+                  early_stopping_rounds = 100, verbose = -1)
+        
+        best_iteration = model.best_iteration_
+        
+        feature_importance_values += model.feature_importances_ / k_fold.n_splits
+        
+        test_pred += model.predict_proba(test_features, num_iteration = best_iteration)[:, 1] / k_fold.n_splits
+        out_of_fold[valid_indices] = model.predict_proba(x_valid, num_iteration = best_iteration)[:, 1]
+        
+        valid_score = model.best_score_['valid']['auc']
+        train_score = model.best_score_['train']['auc']
+        
+        valid_scores.append(valid_score)
+        train_scores.append(train_score)
+        
+        gc.enable()
+        del model, x_train, y_train, x_valid, y_valid
+        gc.collect()
+    
+    pred_score = pd.DataFrame({'SK_ID_CURR': test_ids, 'TARGET': test_pred})
+    feature_importances = pd.DataFrame({'feature': feature_names, 'importance': feature_importance_values})
+    
+    valid_auc = roc_auc_score(train_labels, out_of_fold)
+    
+    valid_scores.append(valid_auc)
+    train_scores.append(np.mean(train_scores))
+    
+    # Needed for creating dataframe of validation scores
+    fold_names = list(range(n_folds))
+    fold_names.append('overall')
+    
+    # Dataframe of validation scores
+    metrics = pd.DataFrame({'fold': fold_names,
+                            'train': train_scores,
+                            'valid': valid_scores}) 
+    
+    return pred_score, feature_importances, metrics
+
+
+train_times = 8
+n_folds = 5
+
+i = 0
+metrics_all = np.zeros((train_times, 2))
+for seed_varying in range(train_times):
+    print('\n=======================================================')
+    print('The ', seed_varying, ' time of train')
+    print('\n=======================================================')
+    sub, fi, metrics = train_with_cv(train, test, n_folds, seed_varying)      #注意修改train和test
+    if i==0:
+        submission = sub
+        feat_import = fi
+    else:
+        submission['TARGET'] += sub['TARGET']
+        feat_import['importance'] += fi['importance']
+    
+    metrics_all[i, :] = metrics.iloc[-1, 1:3]
+    i += 1
+
+metrics_all_average = metrics_all.mean(axis = 0)
+metrics_all = np.row_stack([metrics_all, metrics_all_average])
+train_time_names = list(range(train_times))
+train_time_names.append('Average')
+metrics_final = pd.DataFrame({'train_time': train_time_names,
+                            'train': metrics_all[:,0],
+                            'valid': metrics_all[:,1]}) 
+
+submission['TARGET'] = submission['TARGET'] / train_times
+feat_import['importance'] = feat_import['importance'] / train_times
+
+submission.to_csv('lightgbm_version_14.csv', index = False)
+
+
+
+
+# ** Manual Feature Engineering (Part 5) : credit_card_balance.csv**
+
+
+credit = pd.read_csv('data/credit_card_balance.csv')
+credit.head()
+
+
+
+credit_by_client = aggregate_client(credit, group_vars = ['SK_ID_PREV', 'SK_ID_CURR'], df_names = ['credit', 'client_CC'])
+credit_by_client.head()
+
+
+
+print('Credit by client shape: ', credit_by_client.shape)
+
+train = train.merge(credit_by_client, on = 'SK_ID_CURR', how = 'left')
+test = test.merge(credit_by_client, on = 'SK_ID_CURR', how = 'left')
+
+gc.enable()
+del credit, credit_by_client
+gc.collect()
+
+
+
+train, test = remove_missing_columns(train, test)
+
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+
+train_times = 8
+n_folds = 5
+
+i = 0
+metrics_all = np.zeros((train_times, 2))
+for seed_varying in range(train_times):
+    print('\n=======================================================')
+    print('The ', seed_varying, ' time of train')
+    print('\n=======================================================')
+    sub, fi, metrics = train_with_cv(train, test, n_folds, seed_varying)      #注意修改train和test
+    if i==0:
+        submission = sub
+        feat_import = fi
+    else:
+        submission['TARGET'] += sub['TARGET']
+        feat_import['importance'] += fi['importance']
+    
+    metrics_all[i, :] = metrics.iloc[-1, 1:3]
+    i += 1
+
+metrics_all_average = metrics_all.mean(axis = 0)
+metrics_all = np.row_stack([metrics_all, metrics_all_average])
+train_time_names = list(range(train_times))
+train_time_names.append('Average')
+metrics_final = pd.DataFrame({'train_time': train_time_names,
+                            'train': metrics_all[:,0],
+                            'valid': metrics_all[:,1]}) 
+
+submission['TARGET'] = submission['TARGET'] / train_times
+feat_import['importance'] = feat_import['importance'] / train_times
+
+submission.to_csv('lightgbm_version_15.csv', index = False)
+
+
+
+
+# ** Manual Feature Engineering (Part 6) : installments_payments.csv**
+
+
+installments = pd.read_csv('data/installments_payments.csv')
+installments.head()
+
+
+
+installments_by_client = aggregate_client(installments, group_vars = ['SK_ID_PREV', 'SK_ID_CURR'], df_names = ['installments', 'client_IP'])
+installments_by_client.head()
+
+
+
+
+print('Installments by client shape: ', installments_by_client.shape)
+
+train = train.merge(installments_by_client, on = 'SK_ID_CURR', how = 'left')
+test = test.merge(installments_by_client, on = 'SK_ID_CURR', how = 'left')
+
+gc.enable()
+del installments, installments_by_client
+gc.collect()
+
+
+
+train, test = remove_missing_columns(train, test)
+
+
+
+print('Before align train.shape: ', train.shape)
+print('Before align test.shape: ', test.shape)
+
+train_labels = train['TARGET']
+
+# Align the dataframes, this will remove the 'TARGET' column
+train, test = train.align(test, join = 'inner', axis = 1)
+
+train['TARGET'] = train_labels
+
+print('After align train.shape: ', train.shape)
+print('After align test.shape: ', test.shape)
+
+
+
+
+train_times = 8
+n_folds = 5
+
+i = 0
+metrics_all = np.zeros((train_times, 2))
+for seed_varying in range(train_times):
+    print('\n=======================================================')
+    print('The ', seed_varying, ' time of train')
+    print('\n=======================================================')
+    sub, fi, metrics = train_with_cv(train, test, n_folds, seed_varying)      #注意修改train和test
+    if i==0:
+        submission = sub
+        feat_import = fi
+    else:
+        submission['TARGET'] += sub['TARGET']
+        feat_import['importance'] += fi['importance']
+    
+    metrics_all[i, :] = metrics.iloc[-1, 1:3]
+    i += 1
+
+metrics_all_average = metrics_all.mean(axis = 0)
+metrics_all = np.row_stack([metrics_all, metrics_all_average])
+train_time_names = list(range(train_times))
+train_time_names.append('Average')
+metrics_final = pd.DataFrame({'train_time': train_time_names,
+                            'train': metrics_all[:,0],
+                            'valid': metrics_all[:,1]}) 
+
+submission['TARGET'] = submission['TARGET'] / train_times
+feat_import['importance'] = feat_import['importance'] / train_times
+
+submission.to_csv('lightgbm_version_16.csv', index = False)
+
+
+
+
+def plot_feature_importances(df, num):
+    """
+    Plot importances returned by a model. This can work with any measure of
+    feature importance provided that higher importance is better. 
+    
+    Args:
+        df (dataframe): feature importances. Must have the features in a column
+        called `features` and the importances in a column called `importance
+        
+    Returns:
+        shows a plot of the 15 most importance features
+        
+        df (dataframe): feature importances sorted by importance (highest to lowest) 
+        with a column for normalized importance
+        """
+    
+    # Sort features according to importance
+    df = df.sort_values('importance', ascending = False).reset_index()
+    
+    # Normalize the feature importances to add up to one
+    df['importance_normalized'] = df['importance'] / df['importance'].sum()
+
+    # Make a horizontal bar chart of feature importances
+    plt.figure(figsize = (10, int(6/15*num)))
+    ax = plt.subplot()
+    
+    # Need to reverse the index to plot most important on top
+    ax.barh(list(reversed(list(df.index[:num]))), 
+            df['importance_normalized'].head(num), 
+            align = 'center', edgecolor = 'k')
+    
+    # Set the yticks and labels
+    ax.set_yticks(list(reversed(list(df.index[:num]))))
+    ax.set_yticklabels(df['feature'].head(num))
+    
+    # Plot labeling
+    plt.xlabel('Normalized Importance'); plt.title('Feature Importances')
+    plt.show()
+    
+    return df
+
+
+
+fi_sorted = plot_feature_importances(feat_import, 50)
+
+
+feat_import.to_csv('feature_inportance_V16.csv', index = False)
+
