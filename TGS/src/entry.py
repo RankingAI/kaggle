@@ -57,7 +57,7 @@ def train(train_data, ModelWeightDir, EvaluateFile):
         threshold = 0.0
         if(config.strategy == 'unet'):
             # initialize model
-            model = UNet.UNetModel(img_shape= input_shape, start_ch= 16, depth= 5, batch_norm= True)
+            model = UNet.UNetModel(img_shape= input_shape, start_ch= 16, depth= 5, batch_norm= True, print_network= False)
             # fitting
             with utils.timer('Fitting model'):
                 model.fit(X_train, Y_train,X_valid, Y_valid,config.epochs, config.batch_size, model_weight_file)
@@ -107,7 +107,7 @@ def submit(test_data, SubmitDir, ModelWeightDir, EvaluateFile):
 
         # load model
         with utils.timer('Load model'):
-            model = UNet.UNetModel(img_shape=input_shape, start_ch=16, depth=5, batch_norm=True)
+            model = UNet.UNetModel(img_shape=input_shape, start_ch=16, depth=5, batch_norm=True, print_network= False)
             ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, config.strategy, fold)
             model.load_weight(ModelWeightFile)
 
@@ -145,7 +145,7 @@ def resubmit(TestImageDir, SubmitDir):
 
 if __name__ == '__main__':
     ''''''
-    mode = 'train'
+    mode = 'submit'
 
     RawInputDir = '%s/raw' % config.DataBaseDir
     ModelWeightDir = '%s/%s/weight' % (config.ModelRootDir, config.strategy)
