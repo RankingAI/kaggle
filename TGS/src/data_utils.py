@@ -5,6 +5,10 @@ import config
 from tqdm import tqdm
 import sys
 import glob
+import math
+
+def cov_to_class(val):
+    return np.int(np.ceil(val * 10))
 
 def load_raw_train(InputDir):
     ''''''
@@ -22,6 +26,9 @@ def load_raw_train(InputDir):
 
     # coverage
     train_df["coverage"] = train_df.masks.map(np.sum) / pow(config.img_size_original, 2)
+
+    # coverage level
+    train_df['coverage_level'] = train_df['coverage'].apply(lambda x: int(math.ceil(x * 10)))
 
     return  train_df
 

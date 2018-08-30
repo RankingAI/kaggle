@@ -24,13 +24,28 @@ K.set_session(sess)
 
 input_shape = (config.img_size_target,config.img_size_target,1)
 
+def kfold_split(y, stratified= True, X= None):
+    ''''''
+    if(stratified == True):
+        assert  X != None
+
+    if(stratified):
+        kf = model_selection.StratifiedKFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
+        tr, va = kf.split(X, y)
+    else:
+        kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
+        tr, va = kf.split(y)
+    return tr, va
+
 def train(train_data, ModelWeightDir, EvaluateFile):
     ''''''
     # CV
     cv_iou = np.zeros(config.kfold)
     cv_threshold = np.zeros(config.kfold)
-    kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed,  shuffle=True)
-    for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
+    #for fold, (train_index, valid_index) in enumerate(kfold_split(train_data['z'], stratified= config.stratified, X= train_data['images'])):
+    for fold, (train_index, valid_index) in enumerate(kfold_split(train_data['coverage_level'],
+                                                                  stratified= config.stratified,
+                                                                  X= train_data['images'])):
         fold_start = time.time()
         FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
 
@@ -148,13 +163,14 @@ if __name__ == '__main__':
     mode = 'submit'
 
     RawInputDir = '%s/raw' % config.DataBaseDir
-    ModelWeightDir = '%s/%s/weight' % (config.ModelRootDir, config.strategy)
+    ModelOutpuDir = '%s/%s_depth_stratified' % (config.ModelRootDir, config.strategy)
+    ModelWeightDir = '%s/weight' % ModelOutpuDir
     if(os.path.exists(ModelWeightDir) == False):
         os.makedirs(ModelWeightDir)
 
-    EvaluateFile = '%s/%s/eval.txt' % (config.ModelRootDir, config.strategy)
+    EvaluateFile = '%s/eval.txt' % ModelOutpuDir
 
-    SubmitDir = '%s/%s/submit' % (config.ModelRootDir, config.strategy)
+    SubmitDir = '%s/submit' % ModelOutpuDir
 
     if(mode == 'train'):
         # load raw data set

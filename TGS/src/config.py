@@ -3,6 +3,7 @@ ModelRootDir = '%s/model' % DataBaseDir
 
 kfold = 8
 kfold_seed = 2018
+stratified = True
 
 img_size_original = 101
 img_size_target = 128
