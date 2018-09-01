@@ -65,9 +65,8 @@ class UNetModel():
 		''''''
 		return self.network.predict(X_test).reshape(-1, config.img_size_target, config.img_size_target)
 
-	def evaluate(self, X_valid, Y_valid):
+	def evaluate(self, Pred_valid, Y_valid):
 		''''''
-		Pred_valid = self.network.predict(X_valid).reshape(-1, config.img_size_target, config.img_size_target)
 		Pred_valid = np.array([utils.downsample(x) for x in Pred_valid])
 
 		thresholds = np.linspace(0, 1, 50)

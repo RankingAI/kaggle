@@ -10,7 +10,7 @@ import math
 def cov_to_class(val):
     return np.int(np.ceil(val * 10))
 
-def load_raw_train(InputDir):
+def load_raw_train(InputDir, return_image_files= False):
     ''''''
     # id & depth
     train_df = pd.read_csv("%s/train/train.csv" % InputDir, index_col="id", usecols=[0])
@@ -30,7 +30,11 @@ def load_raw_train(InputDir):
     # coverage level
     train_df['coverage_level'] = train_df['coverage'].apply(lambda x: int(math.ceil(x * 10)))
 
-    return  train_df
+    if(return_image_files):
+        image_files = ['%s/train/images/%s.png' % (InputDir, idx) for idx in train_df.index.values]
+        return train_df, image_files
+    else:
+        return  train_df
 
 def load_raw_test(InputDir):
     ''''''

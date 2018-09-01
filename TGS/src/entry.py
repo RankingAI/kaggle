@@ -42,11 +42,13 @@ def kfold_split(y, stratified= True, X= None):
         tr, va = kf.split(y)
     return tr, va
 
-def train(train_data, ModelWeightDir, EvaluateFile):
+def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
     ''''''
     # CV
+    cv_train = np.zeros((len(train_data), config.img_size_original, config.img_size_original, 1), dtype= np.int32)
     cv_iou = np.zeros(config.kfold)
     cv_threshold = np.zeros(config.kfold)
+    cv_fold = np.zeros(len(train_data))
     ## cv with depth version
     kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
@@ -85,7 +87,11 @@ def train(train_data, ModelWeightDir, EvaluateFile):
                 model.fit(X_train, Y_train,X_valid, Y_valid,config.epochs, config.batch_size, model_weight_file)
             # evaluate
             with utils.timer('Evaluate model'):
-                iou, threshold = model.evaluate(X_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)))
+                pred_valid = model.predict(X_valid)
+                iou, threshold = model.evaluate(pred_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)))
+                pred_valid = np.array([np.int32(utils.downsample(x) > threshold) for x in pred_valid])
+                cv_train[valid_index] = pred_valid.reshape((config.img_size_original, config.img_size_original, 1))
+                cv_fold[valid_index] = fold
         fold_end = time.time()
 
         cv_iou[fold] = iou
@@ -103,7 +109,16 @@ def train(train_data, ModelWeightDir, EvaluateFile):
         for fold in range(config.kfold):
             o_file.write('%s,%s,%s\n' % (fold, cv_iou[fold], cv_threshold[fold]))
     o_file.close()
-
+    # save prediction on train data set
+    PredictMaskDir = '%s/masks' % PredictDir
+    if(os.path.exists(PredictMaskDir) == False):
+        os.makedirs(PredictMaskDir)
+    with open('%s/cv_fold.txt' % PredictDir, 'w') as o_file:
+        for i in range(len(image_files)):
+            image_name = image_files[i].split('/')[-1].split('.')[0]
+            imsave('%s/%s.png' % (PredictMaskDir, image_name), cv_train[i])
+            o_file.write('%s,%s\n' % (image_name, cv_fold[i]))
+    o_file.close()
 
 def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
     ''''''
@@ -179,6 +194,11 @@ if __name__ == '__main__':
     if(os.path.exists(ModelWeightDir) == False):
         os.makedirs(ModelWeightDir)
     EvaluateFile = '%s/eval.txt' % ModelOutpuDir
+    # for debugging
+    PredictDir = '%s/predict' % ModelOutpuDir
+    if(os.path.exists(PredictDir) == False):
+        os.makedirs(PredictDir)
+    # for submit
     SubmitDir = '%s/submit' % ModelOutpuDir
     if(os.path.exists(SubmitDir) == False):
         os.makedirs(SubmitDir)
@@ -186,9 +206,9 @@ if __name__ == '__main__':
     if(mode == 'train'):
         # load raw data set
         with utils.timer('Load raw data set'):
-            train_data = data_utils.load_raw_train(RawInputDir)
+            train_data, image_files = data_utils.load_raw_train(RawInputDir, return_image_files= True)
         # train with CV
-        train(train_data, ModelWeightDir, EvaluateFile)
+        train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir)
     elif(mode == 'submit'):
         # load test data set
         with utils.timer('Load raw test data set'):
