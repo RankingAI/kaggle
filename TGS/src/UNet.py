@@ -41,7 +41,8 @@ class UNetModel():
 								residual)
 		output_net = Conv2D(out_ch, 1, activation='sigmoid')(output_net)
 		self.network = Model(inputs= input_net, outputs= output_net)
-		self.network.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+		#self.network.compile(loss="binary_crossentropy", optimizer="adam", metrics=["accuracy"])
+		self.network.compile(loss= metric.bce_dice_loss, optimizer="adam", metrics=["accuracy"])
 		if(print_network):
 			self.network.summary()
 

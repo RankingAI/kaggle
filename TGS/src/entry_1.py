@@ -18,15 +18,15 @@ import tensorflow as tf
 import keras.backend as K
 
 np.random.seed(27)
-random.random.seed(27)
+#random.random.seed(27)
 tf.set_random_seed(27)
 
 import config
 import data_utils
 import plot_utils
 import utils
-import UNet
-import metric
+import UNetWithResBlock
+import metric_1
 
 # configuration for GPU resources
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=False)
@@ -35,24 +35,6 @@ K.set_session(sess)
 
 input_shape = (config.img_size_target,config.img_size_target,1)
 datestr = datetime.datetime.now().strftime("%Y%m%d")
-
-def kfold_split(y, stratified= True, X= None):
-    ''''''
-    if(stratified == True):
-        assert  X != None
-
-    print(y.shape)
-    print(np.unique(y))
-    print(X.shape)
-
-    if(stratified):
-        kf = model_selection.StratifiedKFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
-        #tr, va = kf.split(X, y)
-        ret = kf.split(X, y)
-    else:
-        kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
-        tr, va = kf.split(y)
-    return tr, va
 
 def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
     ''''''
@@ -64,23 +46,22 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
     ## cv with depth version
     kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
-    ## cv with coverage level stratified version
-    #kf = model_selection.StratifiedKFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
-    #for fold, (train_index, valid_index) in enumerate(kf.split(train_data['images'].values, train_data['coverage_level'].values)):
         fold_start = time.time()
         FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
 
-        # upsample
-        with utils.timer('Upsample on train'):
-            X_train = np.array(FoldTrain['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-            Y_train = np.array(FoldTrain['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-            X_valid = np.array(FoldValid['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-            Y_valid = np.array(FoldValid['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
+        ## upsample
+        #with utils.timer('Upsample on train'):
+        #    X_train = np.array(FoldTrain['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
+        #    Y_train = np.array(FoldTrain['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
+        #    X_valid = np.array(FoldValid['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
+        #    Y_valid = np.array(FoldValid['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
 
         # data augmentation, just for train part
         with utils.timer('Augmentation on train'):
-            X_train = data_utils.y_axis_flip(X_train)
-            Y_train = data_utils.y_axis_flip(Y_train)
+            X_train = data_utils.y_axis_flip(np.array(FoldTrain['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)))
+            Y_train = data_utils.y_axis_flip(np.array(FoldTrain['masks'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)))
+            X_valid = np.array(FoldValid['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1))
+            Y_valid = np.array(FoldValid['masks'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1))
 
         print('\n ---- Sanity check for input shape ----')
         print(X_train.shape)
@@ -91,20 +72,20 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
 
         iou = -1
         threshold = 0.0
-        if(config.strategy == 'unet_depth'):
+        if(config.strategy == 'unet_res_block_depth'):
             # initialize model
-            model = UNet.UNetModel(img_shape= input_shape, start_ch= 16, depth= 5, batch_norm= True, print_network= False)
+            model = UNetWithResBlock.UNetWithResBlock(print_network= False)
             # fitting
             with utils.timer('Fitting model'):
-                model.fit(X_train, Y_train,X_valid, Y_valid,config.epochs, config.batch_size, model_weight_file)
+                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs, config.batch_size, model_weight_file)
             # evaluate
             with utils.timer('Evaluate model'):
                 pred_valid = model.predict(X_valid)
                 iou, threshold = model.evaluate(pred_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)))
-                #pred_valid = np.array([np.int32(utils.downsample(x) > threshold) for x in pred_valid])
-                pred_valid = np.array([utils.downsample(x) for x in pred_valid])
                 cv_train[valid_index] = pred_valid
                 cv_fold[valid_index] = fold
+        else:
+            print('=========== strategy %s not matched!!!' % config.strategy)
         fold_end = time.time()
 
         cv_iou[fold] = iou
@@ -157,18 +138,14 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 
         # load model
         with utils.timer('Load model'):
-            model = UNet.UNetModel(img_shape=input_shape, start_ch=16, depth=5, batch_norm=True, print_network= False)
+            model = UNetWithResBlock.UNetWithResBlock(print_network= False)
             ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
             model.load_weight(ModelWeightFile)
 
-        # upsample
-        with utils.timer('Upsample'):
-            X_test = np.array(test_data['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-
         # infer
         with utils.timer('Infer'):
-            preds_test = model.predict(X_test)
-            pred_result += np.array([np.round(utils.downsample(preds_test[i] > cv_threshold[fold])).tolist() for i, idx in enumerate(tqdm(test_data.index.values))])
+            preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)))
+            pred_result += np.array([(preds_test[i] > cv_threshold[fold]).tolist() for i, idx in enumerate(tqdm(test_data.index.values))])
 
         print('fold %s done' % fold)
 
@@ -179,7 +156,7 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 def save_submit(predict, indexes, SubmitDir, strategy):
     # save
     with utils.timer('Save'):
-        pred_dict = {idx: utils.RLenc(predict[i]) for i, idx in enumerate(tqdm(indexes))}
+        pred_dict = {idx: utils.rle_encode(predict[i]) for i, idx in enumerate(tqdm(indexes))}
         sub = pd.DataFrame.from_dict(pred_dict, orient='index')
         sub.index.names = ['id']
         sub.columns = ['rle_mask']
@@ -257,7 +234,7 @@ def sanity_check(depth_dir, truth_dir, predict_dir, output_dir):
     image_df = pd.merge(image_df, depth_df, how= 'left', on= 'img_name')
     print('merge done!!!')
     #
-    image_df['prec'] = image_df.apply(lambda x: metric.iou_metric(x['mask_data'], (x['pred_mask_data'] > x['threshold']).astype(np.int32)), axis= 1)
+    image_df['prec'] = image_df.apply(lambda x: metric_1.iou_metric(x['mask_data'], (x['pred_mask_data'] > x['threshold']).astype(np.int32)), axis= 1)
     image_df['mask_coverage_ratio'] = image_df['mask_data'].apply(lambda  x: np.sum(x)) / pow(config.img_size_original, 2)
     image_df['pred_mask_coverage_ratio'] = image_df.apply(lambda x: np.sum((x['pred_mask_data'] > x['threshold']).astype(np.int32)), axis= 1) / pow(config.img_size_original, 2)
     print(image_df[['prec', 'iou']].head(50))
@@ -269,7 +246,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-phase', "--phase",
-                        default= 'debug',
+                        default= 'resubmit',
                         help= "project phase",
                         choices= ['train', 'debug', 'submit', 'resubmit'])
     parser.add_argument('-data_input', '--data_input',

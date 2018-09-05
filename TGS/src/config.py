@@ -9,6 +9,7 @@ img_size_original = 101
 img_size_target = 128
 
 # u-net super params
-strategy = 'unet_coverage_level'
+#strategy = 'unet_depth'
+strategy = 'unet_res_block_depth'
 epochs = 200
 batch_size = 64

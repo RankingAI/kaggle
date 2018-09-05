@@ -1,20 +1,20 @@
 import numpy as np
-import keras.backend  as K
-from keras.losses import binary_crossentropy
+import tensorflow as tf
 
 def iou_metric(y_true_in, y_pred_in, print_table=False):
     labels = y_true_in
     y_pred = y_pred_in
 
-    true_objects = 2
-    pred_objects = 2
+    #true_objects = 2
+    #pred_objects = 2
 
-    intersection = np.histogram2d(labels.flatten(), y_pred.flatten(), bins=(true_objects, pred_objects))[0]
-
-    # Compute areas (needed for finding the union between all objects)
-    area_true = np.histogram(labels, bins=true_objects)[0]
-    area_pred = np.histogram(y_pred, bins=pred_objects)[0]
+    # Jiaxin fin that if all zeros, then, the background is treated as object
+    temp1 = np.histogram2d(labels.flatten(), y_pred.flatten(), bins=([0,0.5,1], [0,0.5, 1]))
+    intersection = temp1[0]
+    area_true = np.histogram(labels,bins=[0,0.5,1])[0]
+    area_pred = np.histogram(y_pred, bins=[0,0.5,1])[0]
     area_true = np.expand_dims(area_true, -1)
+
     area_pred = np.expand_dims(area_pred, 0)
 
     # Compute union
@@ -22,6 +22,8 @@ def iou_metric(y_true_in, y_pred_in, print_table=False):
 
     # Exclude background from the analysis
     intersection = intersection[1:, 1:]
+    intersection[intersection == 0] = 1e-9
+
     union = union[1:, 1:]
     union[union == 0] = 1e-9
 
@@ -41,6 +43,7 @@ def iou_metric(y_true_in, y_pred_in, print_table=False):
     prec = []
     if print_table:
         print("Thresh\tTP\tFP\tFN\tPrec.")
+
     for t in np.arange(0.5, 1.0, 0.05):
         tp, fp, fn = precision_at(t, iou)
         if (tp + fp + fn) > 0:
@@ -53,9 +56,11 @@ def iou_metric(y_true_in, y_pred_in, print_table=False):
 
     if print_table:
         print("AP\t-\t-\t-\t{:1.3f}".format(np.mean(prec)))
+
     return np.mean(prec)
 
 def iou_metric_batch(y_true_in, y_pred_in):
+    y_pred_in = y_pred_in > 0.5 # added by sgx 20180728
     batch_size = y_true_in.shape[0]
     metric = []
     for batch in range(batch_size):
@@ -63,21 +68,6 @@ def iou_metric_batch(y_true_in, y_pred_in):
         metric.append(value)
     return np.mean(metric)
 
-def dice_coef(y_true, y_pred):
-    y_true_f = K.flatten(y_true)
-    y_pred = K.cast(y_pred, 'float32')
-    y_pred_f = K.cast(K.greater(K.flatten(y_pred), 0.5), 'float32')
-    intersection = y_true_f * y_pred_f
-    score = 2. * K.sum(intersection) / (K.sum(y_true_f) + K.sum(y_pred_f))
-    return score
-
-def dice_loss(y_true, y_pred):
-    smooth = 1.
-    y_true_f = K.flatten(y_true)
-    y_pred_f = K.flatten(y_pred)
-    intersection = y_true_f * y_pred_f
-    score = (2. * K.sum(intersection) + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
-    return 1. - score
-
-def bce_dice_loss(y_true, y_pred):
-    return binary_crossentropy(y_true, y_pred) + dice_loss(y_true, y_pred)
+def my_iou_metric(label, pred):
+    metric_value = tf.py_func(iou_metric_batch, [label, pred], tf.float64)
+    return metric_value
