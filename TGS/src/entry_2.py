@@ -117,20 +117,20 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
 def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
     ''''''
     # load evaluate result
-    cv_iou = np.zeros(config.kfold, dtype= np.float32)
-    cv_threshold = np.zeros(config.kfold, dtype= np.float32)
-    with open(EvaluateFile, 'r') as i_file:
-        for line in i_file:
-            line = line.rstrip()
-            if(not line):
-                continue
-            parts = line.split(',')
-            fold = int(parts[0])
-            iou = np.float32(parts[1])
-            threshold = np.float32(parts[2])
-            cv_iou[fold] = iou
-            cv_threshold[fold] = threshold
-    i_file.close()
+    #cv_iou = np.zeros(config.kfold, dtype= np.float32)
+    #cv_threshold = np.zeros(config.kfold, dtype= np.float32)
+    #with open(EvaluateFile, 'r') as i_file:
+    #    for line in i_file:
+    #        line = line.rstrip()
+    #        if(not line):
+    #            continue
+    #        parts = line.split(',')
+    #        fold = int(parts[0])
+    #        iou = np.float32(parts[1])
+    #        threshold = np.float32(parts[2])
+    #        cv_iou[fold] = iou
+    #        cv_threshold[fold] = threshold
+    #i_file.close()
 
     pred_result = np.zeros((len(test_data), config.img_size_original, config.img_size_original), dtype= np.float64)
     # do submit with CV
@@ -145,11 +145,13 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
         # infer
         with utils.timer('Infer'):
             preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)))
-            pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold]).tolist() for i in tqdm(range(len(preds_test)))])
+            #pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold]).tolist() for i in tqdm(range(len(pred_test)))])
+            pred_result += np.array([np.int32(preds_test[i] > 0.406667).tolist() for i in tqdm(range(len(preds_test)))])
 
         print('fold %s done' % fold)
+        break
 
-    pred_result = np.round(pred_result / config.kfold)
+    #pred_result = np.round(pred_result / config.kfold)
 
     return pred_result
 
