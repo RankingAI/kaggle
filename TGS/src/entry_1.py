@@ -28,8 +28,10 @@ import utils
 import UNetWithResBlock
 import metric_1
 
+stages = 2
+
 # configuration for GPU resources
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.8, allow_growth=False)
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 1.0, allow_growth=False)
 sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 K.set_session(sess)
 
@@ -38,23 +40,21 @@ datestr = datetime.datetime.now().strftime("%Y%m%d")
 
 def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
     ''''''
+    # save evaluation result
+    eval_f = open(EvaluateFile, 'w')
+
     # CV
     cv_train = np.zeros((len(train_data), config.img_size_original, config.img_size_original), dtype= np.int32)
-    cv_iou = np.zeros(config.kfold)
-    cv_threshold = np.zeros(config.kfold)
     cv_fold = np.zeros(len(train_data))
+
+    cv_iou = np.zeros((config.kfold, stages))
+    cv_threshold = np.zeros((config.kfold, stages))
+
     ## cv with depth version
-    kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
+    kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= False)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
         fold_start = time.time()
         FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
-
-        ## upsample
-        #with utils.timer('Upsample on train'):
-        #    X_train = np.array(FoldTrain['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-        #    Y_train = np.array(FoldTrain['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-        #    X_valid = np.array(FoldValid['images'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
-        #    Y_valid = np.array(FoldValid['masks'].map(utils.upsample).tolist()).reshape((-1, config.img_size_target, config.img_size_target, 1))
 
         # data augmentation, just for train part
         with utils.timer('Augmentation on train'):
@@ -70,40 +70,46 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
 
         model_weight_file = '%s/%s.weight.%s' % (ModelWeightDir, config.strategy, fold)
 
-        iou = -1
-        threshold = 0.0
-        if(config.strategy == 'unet_res_block_depth'):
+        if(config.strategy == 'unet_res_block'):
             # initialize model
-            model = UNetWithResBlock.UNetWithResBlock(print_network= False)
-            # fitting
-            with utils.timer('Fitting model'):
-                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs, config.batch_size, model_weight_file)
-            # evaluate
-            with utils.timer('Evaluate model'):
-                pred_valid = model.predict(X_valid)
-                iou, threshold = model.evaluate(pred_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)))
-                cv_train[valid_index] = pred_valid
-                cv_fold[valid_index] = fold
+            model = UNetWithResBlock.UNetWithResBlock(print_network= False, stages= stages)
+
+            for s in range(stages):
+
+                # fitting model 0
+                with utils.timer('Fitting model 0'):
+                    model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[s], config.batch_size, model_weight_file, stage= s)
+
+                # evaluate with model 0
+                with utils.timer('Evaluate with model 0'):
+                    pred_valid = model.predict(X_valid, stage= s)
+                    iou, threshold = model.evaluate(pred_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)), stage= s)
+                    cv_iou[fold, s] = iou
+                    cv_threshold[fold, s] = threshold
+
+                if(s == stages - 1):
+                    cv_train[valid_index] = pred_valid
+                    cv_fold[valid_index] = fold
         else:
             print('=========== strategy %s not matched!!!' % config.strategy)
         fold_end = time.time()
 
-        cv_iou[fold] = iou
-        cv_threshold[fold] = threshold
-
         print('\n ========= Summary ======== ')
-        print('fold #%s: iou %.6f, threshold %.6f, time elapsed %s[s]' % (fold, iou, threshold, int(fold_end - fold_start)))
+        print('fold #%s: iou %.6f/%.6f, threshold %.6f/%.6f, time elapsed %s[s]' % (fold, cv_iou[fold, 0], cv_iou[fold, 1], cv_threshold[fold, 0], cv_threshold[fold, 1], int(fold_end - fold_start)))
         print('============================\n')
+
+        iou_str = ','.join(['%.6f' for v in cv_iou[fold, :]])
+        thre_str = ','.join(['%.6f' for v in cv_threshold[fold, :]])
+
+        eval_f.write('%s,%s,%s\n' % (fold, iou_str, thre_str))
+        eval_f.flush()
 
         del FoldTrain, FoldValid, X_train, Y_train, X_valid, Y_valid
         gc.collect()
-    print('\n CV IOU %.6f' % np.mean(cv_iou))
-    # save evaluation result
-    with open(EvaluateFile, 'w') as o_file:
-        for fold in range(config.kfold):
-            o_file.write('%s,%s,%s\n' % (fold, cv_iou[fold], cv_threshold[fold]))
-    o_file.close()
-    # save prediction on train data set
+    print('\n CV IOU %.6f' % np.mean(cv_iou[:,-1]))
+    eval_f.close()
+
+    # save prediction on train data set for debug
     PredictMaskDir = '%s/masks' % PredictDir
     if(os.path.exists(PredictMaskDir) == False):
         os.makedirs(PredictMaskDir)
@@ -117,8 +123,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
 def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
     ''''''
     # load evaluate result
-    cv_iou = np.zeros(config.kfold, dtype= np.float32)
-    cv_threshold = np.zeros(config.kfold, dtype= np.float32)
+    cv_iou = np.zeros((config.kfold, stages), dtype= np.float32)
+    cv_threshold = np.zeros((config.kfold, stages), dtype= np.float32)
     with open(EvaluateFile, 'r') as i_file:
         for line in i_file:
             line = line.rstrip()
@@ -126,10 +132,10 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
                 continue
             parts = line.split(',')
             fold = int(parts[0])
-            iou = np.float32(parts[1])
-            threshold = np.float32(parts[2])
-            cv_iou[fold] = iou
-            cv_threshold[fold] = threshold
+            for s in range(stages):
+                cv_iou[fold, s] = np.float32(parts[1 + s])
+            for s in range(stages):
+                cv_threshold[fold, s] = np.float32(parts[1 + stages * 1 + s])
     i_file.close()
 
     pred_result = np.zeros((len(test_data), config.img_size_original, config.img_size_original), dtype= np.float64)
@@ -138,16 +144,17 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 
         # load model
         with utils.timer('Load model'):
-            model = UNetWithResBlock.UNetWithResBlock(print_network= False)
+            model = UNetWithResBlock.UNetWithResBlock(print_network= False, stages= stages)
             ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
             model.load_weight(ModelWeightFile)
 
         # infer
         with utils.timer('Infer'):
-            preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)))
-            pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold]).tolist() for i in tqdm(range(len(preds_test)))])
+            preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)), stages= 1)
+            pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold, 1]).tolist() for i in tqdm(range(len(preds_test)))])
 
         print('fold %s done' % fold)
+        #break
 
     pred_result = np.round(pred_result / config.kfold)
 
@@ -246,7 +253,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-phase', "--phase",
-                        default= 'debug',
+                        default= 'train',
                         help= "project phase",
                         choices= ['train', 'debug', 'submit', 'resubmit'])
     parser.add_argument('-data_input', '--data_input',
@@ -278,7 +285,7 @@ if __name__ == '__main__':
     if(args.phase == 'train'):
         # load raw data set
         with utils.timer('Load raw data set'):
-            train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True)
+            train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True, debug= config.debug)
         # train with CV
         train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir)
     elif(args.phase == 'debug'):

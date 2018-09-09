@@ -1,12 +1,11 @@
 import numpy as np
 import tensorflow as tf
+import keras.backend  as K
+from keras.losses import binary_crossentropy
 
 def iou_metric(y_true_in, y_pred_in, print_table=False):
     labels = y_true_in
     y_pred = y_pred_in
-
-    #true_objects = 2
-    #pred_objects = 2
 
     # Jiaxin fin that if all zeros, then, the background is treated as object
     temp1 = np.histogram2d(labels.flatten(), y_pred.flatten(), bins=([0,0.5,1], [0,0.5, 1]))
@@ -60,7 +59,6 @@ def iou_metric(y_true_in, y_pred_in, print_table=False):
     return np.mean(prec)
 
 def iou_metric_batch(y_true_in, y_pred_in):
-    y_pred_in = y_pred_in > 0.5 # added by sgx 20180728
     batch_size = y_true_in.shape[0]
     metric = []
     for batch in range(batch_size):
@@ -68,6 +66,29 @@ def iou_metric_batch(y_true_in, y_pred_in):
         metric.append(value)
     return np.mean(metric)
 
-def my_iou_metric(label, pred):
-    metric_value = tf.py_func(iou_metric_batch, [label, pred], tf.float64)
+def dice_coef(y_true, y_pred):
+    y_true_f = K.flatten(y_true)
+    y_pred = K.cast(y_pred, 'float32')
+    y_pred_f = K.cast(K.greater(K.flatten(y_pred), 0.5), 'float32')
+    intersection = y_true_f * y_pred_f
+    score = 2. * K.sum(intersection) / (K.sum(y_true_f) + K.sum(y_pred_f))
+    return score
+
+def dice_loss(y_true, y_pred):
+    smooth = 1.
+    y_true_f = K.flatten(y_true)
+    y_pred_f = K.flatten(y_pred)
+    intersection = y_true_f * y_pred_f
+    score = (2. * K.sum(intersection) + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    return 1. - score
+
+def bce_dice_loss(y_true, y_pred):
+    return binary_crossentropy(y_true, y_pred) + dice_loss(y_true, y_pred)
+
+def my_iou_metric_0(label, pred):
+    metric_value = tf.py_func(iou_metric_batch, [label, pred > 0.5], tf.float64)
+    return metric_value
+
+def my_iou_metric_1(label, pred):
+    metric_value = tf.py_func(iou_metric_batch, [label, pred > 0.0], tf.float64)
     return metric_value
