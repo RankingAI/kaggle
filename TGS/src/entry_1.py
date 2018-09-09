@@ -37,6 +37,7 @@ K.set_session(sess)
 
 input_shape = (config.img_size_target,config.img_size_target,1)
 datestr = datetime.datetime.now().strftime("%Y%m%d")
+#datestr= '20180909'
 
 def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
     ''''''
@@ -98,8 +99,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir):
         print('fold #%s: iou %.6f/%.6f, threshold %.6f/%.6f, time elapsed %s[s]' % (fold, cv_iou[fold, 0], cv_iou[fold, 1], cv_threshold[fold, 0], cv_threshold[fold, 1], int(fold_end - fold_start)))
         print('============================\n')
 
-        iou_str = ','.join(['%.6f' for v in cv_iou[fold, :]])
-        thre_str = ','.join(['%.6f' for v in cv_threshold[fold, :]])
+        iou_str = ','.join(['%.6f' % v for v in cv_iou[fold, :]])
+        thre_str = ','.join(['%.6f' % v for v in cv_threshold[fold, :]])
 
         eval_f.write('%s,%s,%s\n' % (fold, iou_str, thre_str))
         eval_f.flush()
@@ -150,7 +151,7 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 
         # infer
         with utils.timer('Infer'):
-            preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)), stages= 1)
+            preds_test = model.predict(np.array(test_data['images'].tolist()).reshape((-1, config.img_size_original, config.img_size_original, 1)), stage= 1)
             pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold, 1]).tolist() for i in tqdm(range(len(preds_test)))])
 
         print('fold %s done' % fold)

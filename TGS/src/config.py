@@ -13,5 +13,5 @@ debug = False
 # u-net super params
 #strategy = 'unet_depth'
 strategy = 'unet_res_block'
-epochs = [40, 40]
+epochs = [50, 50]
 batch_size = 32
