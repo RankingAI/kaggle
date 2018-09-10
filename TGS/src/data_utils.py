@@ -10,7 +10,7 @@ import math
 def cov_to_class(val):
     return np.int(np.ceil(val * 10))
 
-def load_raw_train(InputDir, return_image_files= False, debug= False):
+def load_raw_train(InputDir, return_image_files= False, debug= False, grayscale= True):
     ''''''
     # id & depth
     train_df = pd.read_csv("%s/train/train.csv" % InputDir, index_col="id", usecols=[0])
@@ -18,10 +18,10 @@ def load_raw_train(InputDir, return_image_files= False, debug= False):
     train_df = train_df.join(depths_df)
 
     # image
-    train_df["images"] = [np.array(load_img("%s/train/images/%s.png" % (InputDir, idx), grayscale=True)) / 255 for idx in tqdm(train_df.index)]
+    train_df["images"] = [np.array(load_img("%s/train/images/%s.png" % (InputDir, idx), grayscale= grayscale)) / 255 for idx in tqdm(train_df.index)]
 
     # mask
-    train_df["masks"] = [np.array(load_img("%s/train/masks/%s.png" % (InputDir, idx), grayscale=True)) / 255 for idx in tqdm(train_df.index)]
+    train_df["masks"] = [np.array(load_img("%s/train/masks/%s.png" % (InputDir, idx), grayscale= True)) / 255 for idx in tqdm(train_df.index)]
 
     # coverage
     train_df["coverage"] = train_df.masks.map(np.sum) / pow(config.img_size_original, 2)
@@ -38,7 +38,7 @@ def load_raw_train(InputDir, return_image_files= False, debug= False):
     else:
         return  train_df
 
-def load_raw_test(InputDir):
+def load_raw_test(InputDir, grayscale= True):
     ''''''
     depths_df = pd.read_csv("%s/depths.csv" % InputDir, index_col="id")
     test_files = glob.glob('%s/test/images/*.png' % InputDir)
@@ -48,7 +48,7 @@ def load_raw_test(InputDir):
     print(len(depths_df), len(test_df))
 
     # image
-    test_df["images"] = [np.array(load_img("%s/test/images/%s.png" % (InputDir, idx), grayscale=True)) / 255 for idx in tqdm(test_df.index)]
+    test_df["images"] = [np.array(load_img("%s/test/images/%s.png" % (InputDir, idx), grayscale= grayscale)) / 255 for idx in tqdm(test_df.index)]
 
     return test_df
 

@@ -1,5 +1,3 @@
-import tensorflow as tf
-
 from keras.models import Model
 
 from keras.layers import Input, concatenate
@@ -7,6 +5,8 @@ from keras.layers import Conv2D, Conv2DTranspose
 from keras.layers import MaxPooling2D, UpSampling2D
 from keras.layers import BatchNormalization, Dropout, Activation, Add
 from keras.layers.merge import concatenate
+
+from keras.optimizers import  Adam
 
 import config
 import metric_1
@@ -26,8 +26,8 @@ def lovasz_loss(y_true, y_pred):
     return loss
 
 class UNetWithResBlock:
-    def __init__(self, print_network=True, stages = 2):
-        input_layer = Input((config.img_size_original, config.img_size_original, 1))
+    def __init__(self, input_shape= [None, None, 1], learning_rate= 0.001, print_network=True, stages = 2):
+        input_layer = Input(input_shape)
         output_layer = self.__get_network(input_layer, 16, 0.5)
 
         self.stages = stages
@@ -35,23 +35,24 @@ class UNetWithResBlock:
 
         # model 0
         network_0 = Model(input_layer, output_layer)
-        network_0.compile(loss= metric_1.bce_dice_loss, optimizer="adam", metrics= [metric_1.my_iou_metric_0])
+        opti = Adam(lr= learning_rate)
+        network_0.compile(loss= metric_1.bce_dice_loss, optimizer= opti, metrics= [metric_1.my_iou_metric_0])
         self.networks.append(network_0)
 
         # model 1
         network_1= Model(network_0.layers[0].input, network_0.layers[-1].input)
-        network_1.compile(loss= lovasz_loss, optimizer="adam", metrics= [metric_1.my_iou_metric_1])
+        network_1.compile(loss= lovasz_loss, optimizer= opti, metrics= [metric_1.my_iou_metric_1])
         self.networks.append(network_1)
 
         if(print_network):
             for i in range(len(self.networks)):
-                print('\n ----------------- Summary of Network ------------------' % i)
+                print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
 
-    def load_weight(self, weight_file):
+    def load_weight(self, weight_file, stage= 1):
         ''''''
-        wf = '%s.%s' % (weight_file, self.stages - 1)
-        self.networks[-1].load_weights(wf)
+        wf = '%s.%s' % (weight_file, stage)
+        self.networks[stage].load_weights(wf)
         print('model file %s ' % wf)
 
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
@@ -69,27 +70,35 @@ class UNetWithResBlock:
             callback_list.append(early_stopping)
         self.networks[stage].fit(X_train, Y_train,validation_data=[X_valid, Y_valid],epochs=epochs,batch_size=batch_size,callbacks= callback_list, verbose=2)
 
-    def predict(self, X_test, stage= 0):
+    def predict(self, X_test, stage=0):
         ''''''
+        preds_test_1 = self.networks[stage].predict(X_test)
+
+        # predict on the flipped one
         x_test_reflect = np.array([np.fliplr(x) for x in X_test])
-        preds_test_1 = self.networks[stage].predict(X_test).reshape(-1, config.img_size_original, config.img_size_original)
-        preds_test_refect = self.networks[stage].predict(x_test_reflect).reshape(-1, config.img_size_original,config.img_size_original)
+        preds_test_refect = self.networks[stage].predict(x_test_reflect)
         preds_test_2 = np.array([np.fliplr(x) for x in preds_test_refect])
 
+        # average the tuple
         preds_avg = (preds_test_1 + preds_test_2) / 2
 
         return preds_avg
 
     def evaluate(self, Pred_valid, Y_valid, stage= 0):
         ''''''
-        thresholds = np.linspace(0.1, 0.9, 55)
-        if(stage == 1):
-            thresholds = np.array([np.log(v/(1.0 - v)) for v in thresholds]) # for the SECOND model
+        thresholds = np.linspace(0.1, 0.9, 75)
+        if (stage == self.stages - 1):
+            thresholds = np.array([np.log(v / (1.0 - v)) for v in thresholds])  # transform into logits for the last model
 
+        # iou at different thresholds
         ious = np.array([metric_1.iou_metric_batch(Y_valid, np.int32(Pred_valid > threshold)) for threshold in tqdm(thresholds)])
+
+        # the best threshold
         threshold_best_index = np.argmax(ious)
-        iou_best = ious[threshold_best_index]
         threshold_best = thresholds[threshold_best_index]
+
+        # the best iou
+        iou_best = ious[threshold_best_index]
 
         return iou_best, threshold_best
 
@@ -197,3 +206,6 @@ class UNetWithResBlock:
         output_layer = Activation('sigmoid')(output_layer_noact)
 
         return output_layer
+
+if __name__ == '__main__': # test network frame
+    model = UNetWithResBlock(input_shape= [101, 101, 1], print_network= True)

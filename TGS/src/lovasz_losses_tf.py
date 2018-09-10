@@ -73,7 +73,6 @@ def lovasz_hinge_flat(logits, labels):
                    )
     return loss
 
-
 def flatten_binary_scores(scores, labels, ignore=None):
     """
     Flattens predictions in the batch (binary case)

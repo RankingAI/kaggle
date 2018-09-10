@@ -21,15 +21,11 @@ def timer(name):
     yield
     print(f'\n[{name}] done in {time.time() - t0:.0f} s')
 
-def upsample(img):
-    if config.img_size_original == config.img_size_target:
+# resize
+def img_resize(img, from_size, to_size):
+    if from_size == to_size:
         return img
-    return resize(img, (config.img_size_target, config.img_size_target), mode='constant', preserve_range=True)
-
-def downsample(img):
-    if config.img_size_original == config.img_size_target:
-        return img
-    return resize(img, (config.img_size_original, config.img_size_original), mode='constant', preserve_range=True)
+    return resize(img, (to_size, to_size), mode='constant', preserve_range=True)
 
 # Source https://www.kaggle.com/bguberfain/unet-with-depth
 def RLenc(img, order='F', format=True):
