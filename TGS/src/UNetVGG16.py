@@ -17,7 +17,6 @@ from tqdm import tqdm
 from lovasz_losses_tf import lovasz_hinge
 import config
 
-
 def lovasz_loss(y_true, y_pred):
     y_true, y_pred = K.cast(K.squeeze(y_true, -1), 'int32'), K.cast(K.squeeze(y_pred, -1), 'float32')
     # logits = K.log(y_pred / (1. - y_pred))
@@ -77,13 +76,13 @@ class UNetVGG16:
 
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
         # early stopping
-        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience= 24, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=20, verbose=1)
 
         # save the best checkpoint
         model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,mode='max', save_best_only=True, verbose=1)
 
         # dynamic reduce the learning rate
-        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience= 8, min_lr=0.00001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,min_lr=0.00001, verbose=1)
 
         callback_list = []
         callback_list.append(model_checkpoint)
