@@ -1,7 +1,7 @@
 DataBaseDir = '../data'
 ModelRootDir = '%s/model' % DataBaseDir
 
-debug = False
+debug = False 
 
 kfold = 5
 kfold_seed = 2018
@@ -24,13 +24,13 @@ batch_size = {
 epochs = {
     'unet_res_block': [35, 40],
     'unet_resnet_v2': [25, 25],
-    'unet_vgg16': [60],
+    'unet_vgg16': [100],
 }
 
 learning_rate = {
     'unet_res_block': 0.001,
-    'unet_resnet_v2': 0.0025,
-    'unet_vgg16': 0.0025,
+    'unet_resnet_v2': 0.0005,
+    'unet_vgg16': 0.0005,
 }
 
 freeze_till_layer = {

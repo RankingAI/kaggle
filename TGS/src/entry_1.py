@@ -109,8 +109,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
 
         for s in range(config.stages[strategy]):
             # fitting
-            with utils.timer('Fitting model %' % s):
-                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy][s], model_weight_file, stage= s)
+            with utils.timer('Fitting model %s' % s):
+                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy], model_weight_file, stage= s)
 
             # evaluate
             with utils.timer('Evaluate with model %s' % s):

@@ -63,17 +63,17 @@ class UNetWithResNet:
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
         # early stopping
         early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=20, verbose=1)
+
         # save the best checkpoint
-        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,
-                                           mode='max', save_best_only=True, verbose=1)
+        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,mode='max', save_best_only=True, verbose=1)
+                                           
         # dynamic reduce the learning rate
-        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,
-                                      min_lr=0.00001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,min_lr=0.00001, verbose=1)
 
         callback_list = []
         callback_list.append(model_checkpoint)
         callback_list.append(reduce_lr)
-        if (stage == 1):
+        if (stage == self.stages - 1):
             callback_list.append(early_stopping)
         self.networks[stage].fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
 
