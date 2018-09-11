@@ -109,8 +109,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
 
         for s in range(config.stages[strategy]):
             # fitting
-            with utils.timer('Fitting model %s' % s):
-                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[s], config.batch_size, model_weight_file, stage= s)
+            with utils.timer('Fitting model %' % s):
+                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy][s], model_weight_file, stage= s)
 
             # evaluate
             with utils.timer('Evaluate with model %s' % s):
@@ -131,7 +131,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
         fold_end = time.time()
 
         print('\n ========= Summary ======== ')
-        print('fold #%s: iou %.6f/%.6f, threshold %.6f/%.6f, time elapsed %s[s]' % (fold, cv_iou[fold, 0], cv_iou[fold, 1], cv_threshold[fold, 0], cv_threshold[fold, 1], int(fold_end - fold_start)))
+        for s in range(config.stages[strategy]):
+            print('fold #%s, stage %s/%s: iou %.6f, threshold %.6f, time elapsed %s[s]' % (fold, s, config.stages[strategy], cv_iou[fold, s], cv_threshold[fold, s], int(fold_end - fold_start)))
         print('============================\n')
 
         iou_str = ','.join(['%.6f' % v for v in cv_iou[fold, :]])
@@ -307,26 +308,25 @@ if __name__ == '__main__':
     parser.add_argument('-data_input', '--data_input',
                         default= '%s/raw' % (config.DataBaseDir)
                         )
-    parser.add_argument('-model_output', '--model_output',
-                        default= '%s/%s' % (config.ModelRootDir, config.strategy),
-                        )
     args = parser.parse_args()
 
+    model_output = '%s/%s' % (config.ModelRootDir, args.strategy)
+
     # evaluation log
-    EvaluateFile = '%s/eval_%s.txt' % (args.model_output, datestr)
+    EvaluateFile = '%s/eval_%s.txt' % (model_output, datestr)
 
     # model weight
-    ModelWeightDir = '%s/weight' % args.model_output
+    ModelWeightDir = '%s/weight' % model_output
     if(os.path.exists(ModelWeightDir) == False):
         os.makedirs(ModelWeightDir)
 
     # for debugging
-    PredictDir = '%s/predict' % args.model_output
+    PredictDir = '%s/predict' % model_output
     if(os.path.exists(PredictDir) == False):
         os.makedirs(PredictDir)
 
     # for submit
-    SubmitDir = '%s/submit' % args.model_output
+    SubmitDir = '%s/submit' % model_output
     if(os.path.exists(SubmitDir) == False):
         os.makedirs(SubmitDir)
 
@@ -344,7 +344,7 @@ if __name__ == '__main__':
         # train with CV
         train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, args.strategy)
     elif(args.phase == 'debug'):
-        sanity_check(args.data_input, '%s/train' % args.data_input, PredictDir, args.model_output)
+        sanity_check(args.data_input, '%s/train' % args.data_input, PredictDir, model_output)
     elif(args.phase == 'submit'):
         # load test data set
         with utils.timer('Load raw test data set'):

@@ -88,7 +88,7 @@ class UNetVGG16:
         callback_list = []
         callback_list.append(model_checkpoint)
         callback_list.append(reduce_lr)
-        if (stage == 1):
+        if (stage == self.stages - 1): # add early stopping controller, the last stage
             callback_list.append(early_stopping)
         self.networks[stage].fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
 
