@@ -20,7 +20,6 @@ batch_size = {
     'unet_resnet_v2': 16,
     'unet_vgg16': 32,
 }
-
 epochs = {
     'unet_res_block': [35, 40],
     'unet_resnet_v2': [25, 25],
