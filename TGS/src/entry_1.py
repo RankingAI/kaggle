@@ -29,6 +29,7 @@ import metric_1
 import UNetWithResBlock
 import UNetWithResNet
 import UNetVGG16
+import UNetResNet50VGG16
 
 # configuration for GPU resources
 gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 1.0, allow_growth=False)
@@ -49,6 +50,14 @@ def get_model(strategy):
         )
     elif(strategy == 'unet_vgg16'):
         model = UNetVGG16.UNetVGG16(
+            input_shape= [config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
+            stages= config.stages[strategy],
+            learning_rate= config.learning_rate[strategy],
+            freeze_till_layer= config.freeze_till_layer[strategy],
+            print_network= False,
+        )
+    elif(strategy == 'unet_resnet50_vgg16'):
+        model = UNetResNet50VGG16.UNetResNet50VGG16(
             input_shape= [config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
             stages= config.stages[strategy],
             learning_rate= config.learning_rate[strategy],
@@ -299,7 +308,7 @@ if __name__ == '__main__':
     parser.add_argument('-strategy', "--strategy",
                         default= 'unet_vgg16',
                         help= "algo",
-                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16'])
+                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16'])
 
     parser.add_argument('-phase', "--phase",
                         default= 'train',
@@ -333,14 +342,7 @@ if __name__ == '__main__':
     if(args.phase == 'train'):
         # load raw data set
         with utils.timer('Load raw data set'):
-            if(args.strategy == 'unet_resnet_v2'):
-                train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True, debug= config.debug, grayscale= config.grayscale[args.strategy])
-            elif(args.strategy == 'unet_vgg16'):
-                train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True, debug= config.debug, grayscale= config.grayscale[args.strategy])
-            elif(args.strategy == 'unet_res_block'):
-                train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True, debug= config.debug, grayscale= config.grayscale[args.strategy])
-            else:
-                pass
+            train_data, image_files = data_utils.load_raw_train(args.data_input, return_image_files= True, debug= config.debug, grayscale= config.grayscale[args.strategy])
         # train with CV
         train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, args.strategy)
     elif(args.phase == 'debug'):
