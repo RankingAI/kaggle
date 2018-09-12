@@ -75,7 +75,7 @@ class UNetWithResNet:
 
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
         # early stopping
-        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=20, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience= 10, verbose=1)
 
         # save the best checkpoint
         model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,mode='max', save_best_only=True, verbose=1)
