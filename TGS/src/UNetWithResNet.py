@@ -30,7 +30,10 @@ class UNetWithResNet:
         ''''''
         self.stages = stages
 
-        base_model = InceptionResNetV2(include_top= False, input_shape= input_shape)
+        base_model = InceptionResNetV2(include_top= False, input_shape= input_shape).model
+
+        #base_model.summary()
+
         output_layer = self.__get_network(base_model)
 
         self.networks = []
@@ -54,7 +57,7 @@ class UNetWithResNet:
                 print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
 
-    def load_weight(self, weight_file, stage= 1):
+    def load_weight(self, weight_file, stage= 1): 
         ''''''
         wf = '%s.%s' % (weight_file, stage)
         self.networks[stage].load_weights(wf)
@@ -63,17 +66,17 @@ class UNetWithResNet:
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
         # early stopping
         early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=20, verbose=1)
+
         # save the best checkpoint
-        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,
-                                           mode='max', save_best_only=True, verbose=1)
+        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,mode='max', save_best_only=True, verbose=1)
+                                           
         # dynamic reduce the learning rate
-        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,
-                                      min_lr=0.00001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,min_lr=0.00001, verbose=1)
 
         callback_list = []
         callback_list.append(model_checkpoint)
         callback_list.append(reduce_lr)
-        if (stage == 1):
+        if (stage == self.stages - 1): # add early stopping in the last stage
             callback_list.append(early_stopping)
         self.networks[stage].fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
 
@@ -94,7 +97,8 @@ class UNetWithResNet:
     def evaluate(self, Pred_valid, Y_valid, stage= 0):
         ''''''
         thresholds = np.linspace(0.1, 0.9, 75)
-        if (stage == self.stages - 1):
+        if ((stage != 0) & (stage == self.stages - 1)):
+            print('fixing thresholds...')
             thresholds = np.array([np.log(v / (1.0 - v)) for v in thresholds])  # transform into logits for the last model
 
         # iou at different thresholds

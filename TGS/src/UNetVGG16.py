@@ -30,7 +30,7 @@ class UNetVGG16:
         self.stages = stages
 
         input_layer = Input(shape= input_shape)
-        base_model = VGG16(include_top= False, input_tensor= input_layer)
+        base_model = VGG16(include_top= True, input_tensor= input_layer)
 
         output_layer = self.__get_network(base_model)
 

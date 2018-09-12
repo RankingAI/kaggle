@@ -1,11 +1,6 @@
 import sys
 import numpy as np
 
-print(np.round(0.1))
-print(np.round(0.51))
-
-sys.exit(1)
-
 import keras
 
 print(keras.__version__)

@@ -1,7 +1,7 @@
 DataBaseDir = '../data'
 ModelRootDir = '%s/model' % DataBaseDir
 
-debug = False
+debug = True 
 
 kfold = 5
 kfold_seed = 2018
@@ -11,7 +11,7 @@ img_size_original = 101
 
 stages = {
     'unet_res_block': 2,
-    'unet_resnet_v2': 2,
+    'unet_resnet_v2': 1,
     'unet_vgg16': 1,
     'unet_resnet50_vgg16': 1,
 }
@@ -27,21 +27,21 @@ batch_size = {
     'unet_res_block': 64,
     'unet_resnet_v2': 16,
     'unet_vgg16': 32,
-    'unet_resnet50_vgg16': 16,
+    'unet_resnet50_vgg16': 32,
 }
 
 epochs = {
     'unet_res_block': [35, 40],
-    'unet_resnet_v2': [25, 25],
+    'unet_resnet_v2': [1],
     'unet_vgg16': [60],
     'unet_resnet50_vgg16': [20, 20],
 }
 
 learning_rate = {
     'unet_res_block': 0.001,
-    'unet_resnet_v2': 0.0025,
-    'unet_vgg16': 0.0025,
-    'unet_resnet50_vgg16': 0.0025,
+    'unet_resnet_v2': 0.0005,
+    'unet_vgg16': 0.005,
+    'unet_resnet50_vgg16': 0.00025,
 }
 
 freeze_till_layer = {

@@ -32,9 +32,10 @@ import UNetVGG16
 import UNetResNet50VGG16
 
 # configuration for GPU resources
-gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 1.0, allow_growth=False)
-sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-K.set_session(sess)
+with K.tf.device('/device:GPU:0'):
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= .8, allow_growth=False)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    K.set_session(sess)
 
 datestr = datetime.datetime.now().strftime("%Y%m%d")
 #datestr= '20180909'
@@ -150,7 +151,7 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
         eval_f.write('%s,%s,%s\n' % (fold, iou_str, thre_str))
         eval_f.flush()
 
-        del FoldTrain, FoldValid, X_train, Y_train, X_valid, Y_valid
+        del FoldTrain, FoldValid, X_train, Y_train, X_valid, Y_valid, model
         gc.collect()
     print('\n CV IOU %.6f' % np.mean(cv_iou[:,-1]))
     eval_f.close()
@@ -186,6 +187,7 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 
     pred_result = np.zeros((len(test_data), config.img_size_original, config.img_size_original), dtype= np.float64)
     # do submit with CV
+    model_no = config.stages[strategy] - 1
     for fold in range(config.kfold):
 
         # load model
@@ -194,22 +196,26 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
             model= get_model(strategy)
 
             ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
-            model.load_weight(ModelWeightFile)
+            model.load_weight(ModelWeightFile, model_no)
 
         # infer
         with utils.timer('Infer'):
             # resize to input shape before prediction
             X_test = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in test_data['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3))
-            # predict value, logit or probability
-            preds_test = model.predict(X_test, stage= 1)
+            print('size augmentation done...')
+            # predict value, logit or probability, with the last model
+            preds_test = model.predict(X_test, stage= model_no)
+            print('predcit done...')
             # resize to original shape
-            preds_test = np.array([utils.img_resize(v, from_size=config.encoder_input_size[strategy],to_size=config.img_size_original).squeeze().tolist() for v in preds_test])
+            preds_test = np.array([np.round(utils.img_resize(np.int32(v > cv_threshold[fold, model_no]), from_size=config.encoder_input_size[strategy], to_size=config.img_size_original)).squeeze().tolist() for v in preds_test])
+            print('size rollback done...')
             # predict label
-            pred_result += np.array([np.int32(preds_test[i] > cv_threshold[fold, 1]).tolist() for i in tqdm(range(len(preds_test)))])
+            pred_result += preds_test 
 
         print('fold %s done' % fold)
+        break
     # average them
-    pred_result = np.round(pred_result / config.kfold)
+    #pred_result = np.round(pred_result / config.kfold)
 
     return pred_result
 
