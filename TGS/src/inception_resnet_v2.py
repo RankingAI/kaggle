@@ -53,9 +53,9 @@ def preprocess_input(x):
 
 
 class InceptionResNetV2:
-    def __init__(self, input_shape, include_top= False):
+    def __init__(self, input_shape, input_tensor, include_top= False):
         ''''''
-        self.model = self.get_model_base(input_shape= input_shape, include_top= include_top)
+        self.model = self.get_model_base(input_shape= input_shape, input_tensor= input_tensor, include_top= include_top)
 
     def conv2d_bn(self, x,
                   filters,

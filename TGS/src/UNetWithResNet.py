@@ -1,5 +1,6 @@
 import metric_1
 
+import sys
 import numpy as np
 
 from inception_resnet_v2 import InceptionResNetV2
@@ -8,7 +9,7 @@ import keras.backend as K
 from keras.optimizers import Adam
 from keras.models import Model
 from keras.layers import UpSampling2D, Conv2D, SpatialDropout2D, Conv2DTranspose
-from keras.layers import BatchNormalization, Activation, concatenate
+from keras.layers import BatchNormalization, Activation, concatenate, Input
 
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
@@ -26,13 +27,22 @@ def lovasz_loss(y_true, y_pred):
 
 class UNetWithResNet:
     ''''''
-    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', learning_rate= 0.00025, print_network= False, stages= 2):
+    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', learning_rate= 0.00025, print_network= False, stages= 1):
         ''''''
         self.stages = stages
+        self.encoder_layers = {'activation_3': 9, 'activation_5': 16, 'block35_10_ac': 260, 'block17_20_ac': 594, 'conv_7b_ac': 779}
 
-        base_model = InceptionResNetV2(include_top= False, input_shape= input_shape).model
+        input_layer = Input(shape= input_shape)
+        base_model = InceptionResNetV2(include_top= False, input_tensor= input_layer, input_shape= input_shape).model
 
-        #base_model.summary()
+        #### run with it out of training
+        # for layer_name in self.encoder_layers.keys():
+        #     for i, l in enumerate(base_model.layers):
+        #         if(layer_name == l.name):
+        #             self.encoder_layers[layer_name] = i
+        #             break
+        print('\n -------- encoder layers ---------')
+        print(self.encoder_layers)
 
         output_layer = self.__get_network(base_model)
 
@@ -46,18 +56,18 @@ class UNetWithResNet:
         network_0.compile(loss= metric_1.bce_dice_loss, optimizer= opti,metrics= [metric_1.my_iou_metric_0])
         self.networks.append(network_0)
 
-        # model 1
-        network_1 = Model(network_0.layers[0].input, network_0.layers[-1].input)
-        self.__freeze_model(network_1, freeze_till_layer) # freeze few layers while training
-        network_1.compile(loss= lovasz_loss, optimizer= opti, metrics= [metric_1.my_iou_metric_1])
-        self.networks.append(network_1)
+        # # model 1
+        # network_1 = Model(network_0.layers[0].input, network_0.layers[-1].input)
+        # self.__freeze_model(network_1, freeze_till_layer) # freeze few layers while training
+        # network_1.compile(loss= lovasz_loss, optimizer= opti, metrics= [metric_1.my_iou_metric_1])
+        # self.networks.append(network_1)
 
         if(print_network):
             for i in range(len(self.networks)):
                 print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
 
-    def load_weight(self, weight_file, stage= 1): 
+    def load_weight(self, weight_file, stage= 1):
         ''''''
         wf = '%s.%s' % (weight_file, stage)
         self.networks[stage].load_weights(wf)
@@ -76,18 +86,21 @@ class UNetWithResNet:
         callback_list = []
         callback_list.append(model_checkpoint)
         callback_list.append(reduce_lr)
-        if (stage == self.stages - 1): # add early stopping in the last stage
+        if (stage == self.stages - 1):
+            print('adding early stopping mechanism...')
             callback_list.append(early_stopping)
         self.networks[stage].fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
 
     def predict(self, X_test, stage=0):
         ''''''
         preds_test_1 = self.networks[stage].predict(X_test)
+        print('prediction on original image done.')
 
         # predict on the flipped one
         x_test_reflect = np.array([np.fliplr(x) for x in X_test])
         preds_test_refect = self.networks[stage].predict(x_test_reflect)
         preds_test_2 = np.array([np.fliplr(x) for x in preds_test_refect])
+        print('pridiction on the flipped one done.')
 
         # average the tuple
         preds_avg = (preds_test_1 + preds_test_2) / 2
@@ -98,8 +111,10 @@ class UNetWithResNet:
         ''''''
         thresholds = np.linspace(0.1, 0.9, 75)
         if ((stage != 0) & (stage == self.stages - 1)):
-            print('fixing thresholds...')
+            print('using logit thresholds...')
             thresholds = np.array([np.log(v / (1.0 - v)) for v in thresholds])  # transform into logits for the last model
+        else:
+            print('using proba thresholds...')
 
         # iou at different thresholds
         ious = np.array([metric_1.iou_metric_batch(Y_valid, np.int32(Pred_valid > threshold)) for threshold in tqdm(thresholds)])
@@ -134,11 +149,11 @@ class UNetWithResNet:
 
     def __get_network(self, base_model):
 
-        conv1 = base_model.get_layer('activation_3').output
-        conv2 = base_model.get_layer('activation_5').output
-        conv3 = base_model.get_layer('block35_10_ac').output
-        conv4 = base_model.get_layer('block17_20_ac').output
-        conv5 = base_model.get_layer('conv_7b_ac').output
+        conv1 = base_model.layers[self.encoder_layers['activation_3']].output
+        conv2 = base_model.layers[self.encoder_layers['activation_5']].output
+        conv3 = base_model.layers[self.encoder_layers['block35_10_ac']].output
+        conv4 = base_model.layers[self.encoder_layers['block17_20_ac']].output
+        conv5 = base_model.layers[self.encoder_layers['conv_7b_ac']].output
 
         #up6 = concatenate([Conv2DTranspose(256, (3, 3), strides= (2,2), padding= 'same')(conv5), conv5])
         up6 = concatenate([UpSampling2D()(conv5), conv4], axis=-1)
@@ -168,4 +183,6 @@ class UNetWithResNet:
         return output_layer
 
 if __name__ == '__main__':
-    model = UNetWithResNet(input_shape= [256, 256, 3], print_network= True)
+    for i in range(2):
+        model = UNetWithResNet(input_shape= [256, 256, 3], print_network= False)
+        print('---------------------------------------------------------')
