@@ -1,13 +1,14 @@
 DataBaseDir = '../data'
 ModelRootDir = '%s/model' % DataBaseDir
 
-debug = True 
+debug = False
 
 kfold = 5
 kfold_seed = 2018
 stratified = True
 
 img_size_original = 101
+infer_batch_size = 500
 
 stages = {
     'unet_res_block': 2,
@@ -32,7 +33,7 @@ batch_size = {
 
 epochs = {
     'unet_res_block': [35, 40],
-    'unet_resnet_v2': [1],
+    'unet_resnet_v2': [25],
     'unet_vgg16': [60],
     'unet_resnet50_vgg16': [20, 20],
 }

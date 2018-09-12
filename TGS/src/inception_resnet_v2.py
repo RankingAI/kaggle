@@ -18,6 +18,8 @@ from __future__ import absolute_import
 
 import warnings
 
+import sys
+
 from keras.applications import imagenet_utils
 from keras.applications.imagenet_utils import imagenet_utils as img_utils_1
 from keras.models import Model
@@ -53,9 +55,9 @@ def preprocess_input(x):
 
 
 class InceptionResNetV2:
-    def __init__(self, input_shape, input_tensor, include_top= False):
+    def __init__(self, input_shape, input_tensor, include_top= False, phase= 'train'):
         ''''''
-        self.model = self.get_model_base(input_shape= input_shape, input_tensor= input_tensor, include_top= include_top)
+        self.model = self.get_model_base(input_shape= input_shape, input_tensor= input_tensor, include_top= include_top, phase= phase)
 
     def conv2d_bn(self, x,
                   filters,
@@ -180,7 +182,8 @@ class InceptionResNetV2:
                           input_tensor=None,
                           input_shape=None,
                           pooling=None,
-                          classes=1000):
+                          classes=1000,
+                       phase= 'train'):
         """Instantiates the Inception-ResNet v2 architecture.
 
         Optionally loads weights pre-trained on ImageNet.
@@ -377,6 +380,13 @@ class InceptionResNetV2:
                                         BASE_WEIGHT_URL + weights_filename,
                                         cache_subdir='models',
                                         md5_hash='d19885ff4a710c122648d3b5c3b684e4')
-            model.load_weights(weights_path)
+            if(phase == 'train'):
+                print('renset_v2 base model with weight %s' % weights_path)
+                model.load_weights(weights_path)
+            elif(phase == 'submit'):
+                print('renset_v2 base model without weight')
+            else:
+                print('phase error!!!')
+                sys.exit(1)
 
         return model

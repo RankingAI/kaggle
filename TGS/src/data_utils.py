@@ -45,7 +45,7 @@ def load_raw_test(InputDir, grayscale= True):
     test_ids = [f.split('/')[-1].split('.')[0] for f in test_files]
     test_df = pd.DataFrame(index= test_ids)
     test_df = test_df.join(depths_df)
-    print(len(depths_df), len(test_df))
+    print('depth size %s, test size %s' % (len(depths_df), len(test_df)))
 
     # image
     test_df["images"] = [np.array(load_img("%s/test/images/%s.png" % (InputDir, idx), grayscale= grayscale)) / 255 for idx in tqdm(test_df.index)]

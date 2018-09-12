@@ -37,10 +37,10 @@ with K.tf.device('/device:GPU:0'):
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     K.set_session(sess)
 
-datestr = datetime.datetime.now().strftime("%Y%m%d")
-#datestr= '20180909'
+#datestr = datetime.datetime.now().strftime("%Y%m%d")
+datestr= '20180912'
 
-def get_model(strategy):
+def get_model(strategy, phase= 'train'):
     if (strategy == 'unet_resnet_v2'):
         model = UNetWithResNet.UNetWithResNet(
             input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
@@ -48,6 +48,7 @@ def get_model(strategy):
             learning_rate=config.learning_rate[strategy],
             freeze_till_layer=config.freeze_till_layer[strategy],
             print_network=False,
+            phase= phase,
         )
     elif(strategy == 'unet_vgg16'):
         model = UNetVGG16.UNetVGG16(
@@ -89,13 +90,13 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
     cv_threshold = np.zeros((config.kfold, config.stages[strategy]))
 
     ## cv with depth version
-    kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= False)
+    kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
         print('\n ---- Fold %s starts... \n' % fold)
 
         fold_start = time.time()
 
-        FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
+        FoldTrain, FoldValid = train_data.iloc[train_index, :].copy(), train_data.iloc[valid_index, :].copy()
         # data augmentation, just for train part
         with utils.timer('Augmentation on train'):
             X_train = data_utils.y_axis_flip(np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldTrain['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3)))
@@ -167,6 +168,18 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
             o_file.write('%s,%s\n' % (image_name, cv_fold[i]))
     o_file.close()
 
+def batch(iterable, batch_size):
+    """Yields lists by batch"""
+    b = []
+    for i, t in enumerate(iterable):
+        b.append(t)
+        if (i + 1) % batch_size == 0:
+            yield b
+            b = []
+
+    if len(b) > 0:
+        yield b
+
 def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
     ''''''
     # load evaluate result
@@ -185,6 +198,10 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
                 cv_threshold[fold, s] = np.float32(parts[1 + config.stages[strategy] * 1 + s])
     i_file.close()
 
+    with utils.timer('reset index on test data'):
+        test_data.reset_index(drop= False, inplace= True)
+        test_data.rename(index= str, columns= {'index': 'id'}, inplace= True)
+
     pred_result = np.zeros((len(test_data), config.img_size_original, config.img_size_original), dtype= np.float64)
     # do submit with CV
     model_no = config.stages[strategy] - 1
@@ -193,29 +210,36 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
         # load model
         with utils.timer('Load model'):
 
-            model= get_model(strategy)
+            model= get_model(strategy, 'submit')
 
             ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
             model.load_weight(ModelWeightFile, model_no)
 
+        print('predict threshold %.6f' % cv_threshold[fold, model_no])
+
         # infer
         with utils.timer('Infer'):
-            # resize to input shape before prediction
-            X_test = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in test_data['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3))
-            print('size augmentation done...')
-            # predict value, logit or probability, with the last model
-            preds_test = model.predict(X_test, stage= model_no)
-            print('predcit done...')
-            # resize to original shape
-            preds_test = np.array([np.round(utils.img_resize(np.int32(v > cv_threshold[fold, model_no]), from_size=config.encoder_input_size[strategy], to_size=config.img_size_original)).squeeze().tolist() for v in preds_test])
-            print('size rollback done...')
-            # predict label
-            pred_result += preds_test 
+            preds_test = []
+            for batch_no, batch_index in enumerate(batch(test_data.index.values, config.infer_batch_size)):
+                with utils.timer('batch %s/%s' % (((batch_no + 1) * config.infer_batch_size), len(test_data))):
+                    test_images = test_data['images'][batch_index]
+                    # resize to input shape before prediction
+                    X_test = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in test_images])
+                    # predict value, logit or probability, with the last model
+                    pred_batch = model.predict(X_test, stage= model_no)
+                    # resize to original shape and convert into label
+                    pred_batch = [np.int32(np.round(utils.img_resize(v, from_size=config.encoder_input_size[strategy], to_size=config.img_size_original) > cv_threshold[fold, model_no])).squeeze().tolist() for v in pred_batch]
+                    preds_test.append(pred_batch)
+                    del X_test, pred_batch
+                    gc.collect()
+            pred_result += np.array(preds_test).reshape((len(test_data), config.img_size_original, config.img_size_original))
+            del preds_test
+            gc.collect()
 
         print('fold %s done' % fold)
-        break
+        #break
     # average them
-    #pred_result = np.round(pred_result / config.kfold)
+    pred_result = np.round(pred_result / config.kfold)
 
     return pred_result
 
@@ -312,8 +336,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-strategy', "--strategy",
-                        default= 'unet_vgg16',
-                        help= "algo",
+                        default= 'unet_resnet_v2',
+                        help= "strategy",
                         choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16'])
 
     parser.add_argument('-phase', "--phase",
@@ -358,7 +382,7 @@ if __name__ == '__main__':
         with utils.timer('Load raw test data set'):
             test_data = data_utils.load_raw_test(args.data_input, grayscale= config.grayscale[args.strategy])
         pred_test = infer(test_data, ModelWeightDir, EvaluateFile, args.strategy)
-        save_submit(pred_test, test_data.index.values, SubmitDir, args.strategy)
+        save_submit(pred_test, test_data['id'].values, SubmitDir, args.strategy)
     elif(args.phase == 'merge_submit'):
         with utils.timer('Load raw test data set'):
             test_data = data_utils.load_raw_test(args.data_input)
