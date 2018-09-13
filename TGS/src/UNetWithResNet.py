@@ -33,9 +33,9 @@ class UNetWithResNet:
         self.freeze_till_layer = freeze_till_layer
         self.encoder_layers = {'activation_3': 9, 'activation_5': 16, 'block35_10_ac': 260, 'block17_20_ac': 594, 'conv_7b_ac': 779}
 
-        input_layer = Input(shape= input_shape)
-        base_model = InceptionResNetV2(include_top= False, input_tensor= input_layer, input_shape= input_shape, phase= phase).model
-        output_layer = self.__get_network(base_model)
+        self.input_layer = Input(shape= input_shape)
+        self.base_model = InceptionResNetV2(include_top= False, input_tensor= self.input_layer, input_shape= input_shape, phase= phase)
+        self.output_layer = self.__get_network()
 
         print('\n -------- encoder layers ---------')
         print(self.encoder_layers)
@@ -52,24 +52,26 @@ class UNetWithResNet:
 
         for i in range(self.stages):
             if(i == 0):
-                inp = base_model.input
-                out = output_layer
+                inp = self.base_model.model.input
+                out = self.output_layer
             else:
                 inp = self.networks[i - 1].layers[0].input
                 out = self.networks[i - 1].layers[-1].input
             network = Model(inp, out)
             self.networks.append(network)
 
-        # # model 1
-        # network_1 = Model(network_0.layers[0].input, network_0.layers[-1].input)
-        # self.__freeze_model(network_1, freeze_till_layer) # freeze few layers while training
-        # network_1.compile(loss= lovasz_loss, optimizer= opti, metrics= [metric_1.my_iou_metric_1])
-        # self.networks.append(network_1)
-
         if(print_network):
             for i in range(len(self.networks)):
                 print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
+
+    #def reset(self, stage):
+    #    self.networks[stage] = None
+
+    #def __del__(self):
+    #    self.base_model = None
+    #    for s in range(self.stages):
+    #        self.networks[s] = None
 
     def load_weight(self, weight_file, stage= -1):
         ''''''
@@ -167,13 +169,13 @@ class UNetWithResNet:
         conv = Activation('relu', name=prefix + "_activation")(conv)
         return conv
 
-    def __get_network(self, base_model):
+    def __get_network(self):
 
-        conv1 = base_model.layers[self.encoder_layers['activation_3']].output
-        conv2 = base_model.layers[self.encoder_layers['activation_5']].output
-        conv3 = base_model.layers[self.encoder_layers['block35_10_ac']].output
-        conv4 = base_model.layers[self.encoder_layers['block17_20_ac']].output
-        conv5 = base_model.layers[self.encoder_layers['conv_7b_ac']].output
+        conv1 = self.base_model.model.layers[self.encoder_layers['activation_3']].output
+        conv2 = self.base_model.model.layers[self.encoder_layers['activation_5']].output
+        conv3 = self.base_model.model.layers[self.encoder_layers['block35_10_ac']].output
+        conv4 = self.base_model.model.layers[self.encoder_layers['block17_20_ac']].output
+        conv5 = self.base_model.model.layers[self.encoder_layers['conv_7b_ac']].output
 
         #up6 = concatenate([Conv2DTranspose(256, (3, 3), strides= (2,2), padding= 'same')(conv5), conv5])
         up6 = concatenate([UpSampling2D()(conv5), conv4], axis=-1)
@@ -192,7 +194,7 @@ class UNetWithResNet:
         conv9 = self.__conv_block_simple(up9, 64, "conv9_1")
         conv9 = self.__conv_block_simple(conv9, 64, "conv9_2")
 
-        up10 = concatenate([UpSampling2D()(conv9), base_model.input], axis=-1)
+        up10 = concatenate([UpSampling2D()(conv9), self.base_model.model.input], axis=-1)
         conv10 = self.__conv_block_simple(up10, 48, "conv10_1")
         conv10 = self.__conv_block_simple(conv10, 32, "conv10_2")
         conv10 = SpatialDropout2D(0.4)(conv10)

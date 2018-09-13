@@ -8,6 +8,7 @@ from sklearn import model_selection
 from tqdm import tqdm
 import argparse
 import glob
+import psutil
 
 os.environ['PYTHONHASHSEED'] = '0'
 
@@ -31,14 +32,19 @@ import UNetWithResNet
 import UNetVGG16
 import UNetResNet50VGG16
 
+process = psutil.Process(os.getpid())
+def _print_memory_usage():
+    ''''''
+    print('\n---- Current memory usage %sM ----\n' % int(process.memory_info().rss/(1024*1024)))
+
 # configuration for GPU resources
 with K.tf.device('/device:GPU:0'):
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= .8, allow_growth=False)
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     K.set_session(sess)
 
-#datestr = datetime.datetime.now().strftime("%Y%m%d")
-datestr= '20180912'
+datestr = datetime.datetime.now().strftime("%Y%m%d")
+#datestr= '20180912'
 
 def get_model(strategy, phase= 'train'):
     if (strategy == 'unet_resnet_v2'):
@@ -89,6 +95,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
     cv_iou = np.zeros((config.kfold, config.stages[strategy]))
     cv_threshold = np.zeros((config.kfold, config.stages[strategy]))
 
+    _print_memory_usage()
+
     ## cv with depth version
     kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
@@ -103,6 +111,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
             Y_train = data_utils.y_axis_flip(np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldTrain['masks'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1)))
             X_valid = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldValid['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3))
             Y_valid = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldValid['masks'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1))
+
+        _print_memory_usage()
 
         print('\n ---- Sanity check for input shape ----')
         print('shape of X_train: ')
@@ -139,6 +149,9 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
             if(s == config.stages[strategy] - 1):
                 cv_train[valid_index] = pred_valid
                 cv_fold[valid_index] = fold
+
+            _print_memory_usage()
+
         fold_end = time.time()
 
         print('\n ========= Summary ======== ')
@@ -154,8 +167,18 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
 
         del FoldTrain, FoldValid, X_train, Y_train, X_valid, Y_valid, model
         gc.collect()
+
+        _print_memory_usage()
+
+        with utils.timer('clean session'):
+            K.clear_session()
+
+        _print_memory_usage()
+
     print('\n CV IOU %.6f' % np.mean(cv_iou[:,-1]))
     eval_f.close()
+
+    _print_memory_usage()
 
     # save prediction on train data set for debug
     PredictMaskDir = '%s/masks' % PredictDir
