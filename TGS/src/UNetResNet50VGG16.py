@@ -1,5 +1,6 @@
 import metric_1
 
+import os,sys
 import numpy as np
 
 # pre-trained models
@@ -26,29 +27,63 @@ def lovasz_loss(y_true, y_pred):
     return loss
 
 class UNetResNet50VGG16:
-    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', learning_rate= 0.001, print_network= False, stages= 1):
+    ''''''
+    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', learning_rate= 0.001, print_network= False, stages= 0, phase= 'train'):
         ''''''
+        self.resnet_encoder_layers = {'activation_1': 3, 'activation_10': 36, 'activation_22': 78, 'activation_40': 140, 'activation_49': 172}
+        self.vgg_encoder_layers = {'block1_conv2': 2}
+
         self.stages = stages
+        self.freeze_till_layer = freeze_till_layer
 
-        resnet_model = ResNet50(input_shape=input_shape, include_top=False)
+        self.input_layer = Input(shape= input_shape)
 
-        vgg_model = VGG16(input_shape=input_shape, input_tensor= resnet_model.input, include_top=False)
+        # backbone models
+        self.resnet50_base_model = ResNet50(input_shape= input_shape, input_tensor= self.input_layer, include_top= False, phase= phase)
+        self.vgg16_base_model = VGG16(input_shape= input_shape, input_tensor= self.resnet50_base_model.model.input, include_top=False)
+        # activate all layers
+        for l in self.resnet50_base_model.model.layers:
+            l.trainable = True
+        # frozen all layers
+        for l in self.vgg16_base_model.layers:
+            l.trainable = False
 
-        output_layer = self.__get_network(resnet_model, vgg_model)
+        self.output_layer = self.__get_network()
 
         self.networks = []
-        opti = Adam(lr= learning_rate)
-        ## model 0
-        network_0 = Model(resnet_model.input, output_layer)
-        self.__freeze_model(network_0, freeze_till_layer) # freeze few layers while training
+        self.opti = Adam(lr= learning_rate)
 
-        network_0.compile(loss= metric_1.bce_dice_loss, optimizer= opti,metrics= [metric_1.my_iou_metric_0])
-        self.networks.append(network_0)
+        for i in range(self.stages):
+            if(i == 0):
+                inp = self.resnet50_base_model.model.input
+                out = self.output_layer
+            else:
+                inp = self.networks[i - 1].layers[0].input
+                out = self.networks[i - 1].layers[-1].input
+            network = Model(inp, out)
+            self.networks.append(network)
+
+        print('resnet50 encoder layers(NOT FROZEN):')
+        print(self.resnet_encoder_layers)
+        print('vgg encoder layers(FROZEN):')
+        print(self.vgg_encoder_layers)
 
         if(print_network):
             for i in range(len(self.networks)):
                 print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
+
+        # ### run with it out of training
+        # for layer_name in self.resnet_encoder_layers.keys():
+        #     for i, l in enumerate(resnet_model.layers):
+        #         if(layer_name == l.name):
+        #             self.resnet_encoder_layers[layer_name] = i
+        #             break
+        # for layer_name in self.vgg_encoder_layers.keys():
+        #     for i, l in enumerate(vgg_model.layers):
+        #         if(layer_name == l.name):
+        #             self.vgg_encoder_layers[layer_name] = i
+        #             break
 
     # NOT used yet
     def __freeze_model(self, model, freeze_before_layer):
@@ -63,48 +98,73 @@ class UNetResNet50VGG16:
             for l in model.layers[:freeze_before_layer_index]:
                 l.trainable = False
 
-    def load_weight(self, weight_file, stage=1):
+    def load_weight(self, weight_file, stage= -1):
         ''''''
         wf = '%s.%s' % (weight_file, stage)
         self.networks[stage].load_weights(wf)
         print('model file %s ' % wf)
 
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
+
         # early stopping
-        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=20, verbose=1)
+        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience=10, verbose=1)
 
         # save the best checkpoint
-        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,mode='max', save_best_only=True, verbose=1)
+        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,
+                                           mode='max', save_best_only=True, verbose=1)
 
         # dynamic reduce the learning rate
-        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,min_lr=0.00001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,
+                                      min_lr=0.00001, verbose=1)
 
         callback_list = []
         callback_list.append(model_checkpoint)
         callback_list.append(reduce_lr)
-        if (stage == self.stages - 1): # add early stopping controller, the last stage
+        if (stage == self.stages - 1):
+            print('adding early stopping mechanism...')
             callback_list.append(early_stopping)
-        self.networks[stage].fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
 
-    def predict(self, X_test, stage=0):
+        # compile
+        net = self.networks[stage]
+        # self.__freeze_model(net, self.freeze_till_layer) # freeze few layers while training
+        if (stage == 0):
+            net.compile(loss=metric_1.bce_dice_loss, optimizer=self.opti, metrics=[metric_1.my_iou_metric_0])
+        elif (stage == 1):
+            net.compile(loss=lovasz_loss, optimizer=self.opti, metrics=[metric_1.my_iou_metric_1])
+
+        # fitting
+        net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,
+                callbacks=callback_list, verbose=2)
+
+    def predict(self, X_test, stage= -1):
         ''''''
         preds_test_1 = self.networks[stage].predict(X_test)
+        #print('prediction on original image done.')
 
         # predict on the flipped one
         x_test_reflect = np.array([np.fliplr(x) for x in X_test])
         preds_test_refect = self.networks[stage].predict(x_test_reflect)
         preds_test_2 = np.array([np.fliplr(x) for x in preds_test_refect])
+        #print('pridiction on the flipped one done.')
 
         # average the tuple
         preds_avg = (preds_test_1 + preds_test_2) / 2
 
         return preds_avg
 
-    def evaluate(self, Pred_valid, Y_valid, stage= 0):
+    def evaluate(self, Pred_valid, Y_valid, stage= -1):
         ''''''
+        print('shape of predicted')
+        print(Pred_valid.shape)
+        print('shap of truth')
+        print(Y_valid.shape)
+
         thresholds = np.linspace(0.1, 0.9, 75)
-        if (stage == self.stages - 1):
+        if ((stage != 0) & (stage == self.stages - 1)):
+            print('using logit thresholds...')
             thresholds = np.array([np.log(v / (1.0 - v)) for v in thresholds])  # transform into logits for the last model
+        else:
+            print('using proba thresholds...')
 
         # iou at different thresholds
         ious = np.array([metric_1.iou_metric_batch(Y_valid, np.int32(Pred_valid > threshold)) for threshold in tqdm(thresholds)])
@@ -125,15 +185,13 @@ class UNetResNet50VGG16:
         conv = Activation('relu', name=prefix + "_activation")(conv)
         return conv
 
-    def __get_network(self, resnet_model, vgg_model):
+    def __get_network(self):
 
-        for l in resnet_model.layers:
-            l.trainable = True
-        conv1 = resnet_model.get_layer("activation_1").output
-        conv2 = resnet_model.get_layer("activation_10").output
-        conv3 = resnet_model.get_layer("activation_22").output
-        conv4 = resnet_model.get_layer("activation_40").output
-        conv5 = resnet_model.get_layer("activation_49").output
+        conv1 = self.resnet50_base_model.model.layers[self.resnet_encoder_layers["activation_1"]].output
+        conv2 = self.resnet50_base_model.model.layers[self.resnet_encoder_layers["activation_10"]].output
+        conv3 = self.resnet50_base_model.model.layers[self.resnet_encoder_layers["activation_22"]].output
+        conv4 = self.resnet50_base_model.model.layers[self.resnet_encoder_layers["activation_40"]].output
+        conv5 = self.resnet50_base_model.model.layers[self.resnet_encoder_layers["activation_49"]].output
 
         up6 = concatenate([UpSampling2D()(conv5), conv4], axis=-1)
         conv6 = self.__conv_block_simple(up6, 256, "conv6_1")
@@ -151,14 +209,12 @@ class UNetResNet50VGG16:
         conv9 = self.__conv_block_simple(up9, 64, "conv9_1")
         conv9 = self.__conv_block_simple(conv9, 64, "conv9_2")
 
-        for l in vgg_model.layers:
-            l.trainable = False
-        vgg_first_conv = vgg_model.get_layer("block1_conv2").output
-        up10 = concatenate([UpSampling2D()(conv9), resnet_model.input, vgg_first_conv], axis=-1)
+        vgg_first_conv = self.vgg16_base_model.layers[self.vgg_encoder_layers["block1_conv2"]].output
+        up10 = concatenate([UpSampling2D()(conv9), self.resnet50_base_model.model.input, vgg_first_conv], axis=-1)
         conv10 = self.__conv_block_simple(up10, 32, "conv10_1")
         conv10 = self.__conv_block_simple(conv10, 32, "conv10_2")
         conv10 = SpatialDropout2D(0.2)(conv10)
-        output_layer_noact = Conv2D(1, (1, 1), activation="sigmoid", name="prediction")(conv10)
+        output_layer_noact = Conv2D(1, (1, 1), name="prediction")(conv10)
         output_layer = Activation('sigmoid')(output_layer_noact)
 
         return output_layer

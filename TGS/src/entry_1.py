@@ -31,6 +31,7 @@ import UNetWithResBlock
 import UNetWithResNet
 import UNetVGG16
 import UNetResNet50VGG16
+import UNetXception
 
 process = psutil.Process(os.getpid())
 def _print_memory_usage():
@@ -39,7 +40,7 @@ def _print_memory_usage():
 
 # configuration for GPU resources
 with K.tf.device('/device:GPU:0'):
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= .8, allow_growth=False)
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 1.0, allow_growth=False)
     sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     K.set_session(sess)
 
@@ -51,7 +52,14 @@ def get_model(strategy, phase= 'train'):
         model = UNetWithResNet.UNetWithResNet(
             input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
             stages=config.stages[strategy],
-            learning_rate=config.learning_rate[strategy],
+            freeze_till_layer=config.freeze_till_layer[strategy],
+            print_network=False,
+            phase= phase,
+        )
+    elif (strategy == 'unet_xception'):
+        model = UNetXception.UNetXception(
+            input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
+            stages=config.stages[strategy],
             freeze_till_layer=config.freeze_till_layer[strategy],
             print_network=False,
             phase= phase,
@@ -104,7 +112,7 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
 
         fold_start = time.time()
 
-        FoldTrain, FoldValid = train_data.iloc[train_index, :].copy(), train_data.iloc[valid_index, :].copy()
+        FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
         # data augmentation, just for train part
         with utils.timer('Augmentation on train'):
             X_train = data_utils.y_axis_flip(np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldTrain['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3)))
@@ -131,7 +139,7 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
         for s in range(config.stages[strategy]):
             # fitting
             with utils.timer('Fitting model %s' % s):
-                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy], model_weight_file, stage= s)
+                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy], model_weight_file, learning_rate= config.learning_rate[strategy][s], stage= s)
 
             # evaluate
             with utils.timer('Evaluate with model %s' % s):
@@ -261,6 +269,9 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
 
         print('fold %s done' % fold)
         #break
+        with utils.timer('clear session'):
+            K.clear_session()
+
     # average them
     pred_result = np.round(pred_result / config.kfold)
 
@@ -359,9 +370,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-strategy', "--strategy",
-                        default= 'unet_resnet_v2',
+                        default= 'unet_xception',
                         help= "strategy",
-                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16'])
+                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16', 'unet_xception'])
 
     parser.add_argument('-phase', "--phase",
                         default= 'train',

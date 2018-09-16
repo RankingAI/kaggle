@@ -27,7 +27,7 @@ def lovasz_loss(y_true, y_pred):
 
 class UNetWithResNet:
     ''''''
-    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', learning_rate= 0.00025, print_network= False, stages= 0, phase= 'train'):
+    def __init__(self, input_shape= [None, None, 3], freeze_till_layer= 'input_1', print_network= False, stages= 0, phase= 'train'):
         ''''''
         self.stages = stages
         self.freeze_till_layer = freeze_till_layer
@@ -35,6 +35,7 @@ class UNetWithResNet:
 
         self.input_layer = Input(shape= input_shape)
         self.base_model = InceptionResNetV2(include_top= False, input_tensor= self.input_layer, input_shape= input_shape, phase= phase)
+
         self.output_layer = self.__get_network()
 
         print('\n -------- encoder layers ---------')
@@ -48,7 +49,6 @@ class UNetWithResNet:
         #             break
 
         self.networks = []
-        self.opti = Adam(lr= learning_rate)
 
         for i in range(self.stages):
             if(i == 0):
@@ -64,6 +64,7 @@ class UNetWithResNet:
             for i in range(len(self.networks)):
                 print('\n ----------------- Summary of Network %s ------------------' % i)
                 self.networks[i].summary()
+                break
 
     #def reset(self, stage):
     #    self.networks[stage] = None
@@ -79,7 +80,7 @@ class UNetWithResNet:
         self.networks[stage].load_weights(wf)
         print('model file %s ' % wf)
 
-    def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, stage=0):
+    def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, learning_rate, stage=0):
 
         # early stopping
         early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience= 10, verbose=1)
@@ -98,12 +99,13 @@ class UNetWithResNet:
             callback_list.append(early_stopping)
 
         # compile
+        opti = Adam(lr= learning_rate)
         net = self.networks[stage]
         #self.__freeze_model(net, self.freeze_till_layer) # freeze few layers while training
         if(stage == 0):
-            net.compile(loss= metric_1.bce_dice_loss, optimizer= self.opti,metrics= [metric_1.my_iou_metric_0])
+            net.compile(loss= metric_1.bce_dice_loss, optimizer = opti, metrics= [metric_1.my_iou_metric_0])
         elif(stage == 1):
-            net.compile(loss= lovasz_loss, optimizer= self.opti, metrics= [metric_1.my_iou_metric_1])
+            net.compile(loss= lovasz_loss, optimizer = opti, metrics= [metric_1.my_iou_metric_1])
 
         # fitting
         net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs,batch_size=batch_size, callbacks=callback_list, verbose=2)
@@ -205,6 +207,5 @@ class UNetWithResNet:
         return output_layer
 
 if __name__ == '__main__':
-    for i in range(2):
-        model = UNetWithResNet(input_shape= [256, 256, 3], print_network= False)
-        print('---------------------------------------------------------')
+    model = UNetWithResNet(input_shape= [256, 256, 3], print_network= True, stages= 1)
+

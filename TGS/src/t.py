@@ -1,3 +1,7 @@
+import tensorflow as tf
+
+print(tf.__version__)
+
 from sklearn.model_selection import KFold
 import numpy as np
 
