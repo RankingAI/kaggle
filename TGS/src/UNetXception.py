@@ -1,5 +1,6 @@
 import metric_1
 
+import sys
 import numpy as np
 import Xception
 from keras.models import Model
@@ -15,14 +16,11 @@ from keras.layers.merge import concatenate
 from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 
 from tqdm import tqdm
-from lovasz_losses_tf import lovasz_hinge
 
-def lovasz_loss(y_true, y_pred):
-    y_true, y_pred = K.cast(K.squeeze(y_true, -1), 'int32'), K.cast(K.squeeze(y_pred, -1), 'float32')
-    # logits = K.log(y_pred / (1. - y_pred))
-    logits = y_pred
-    loss = lovasz_hinge(logits, y_true, per_image=True, ignore=None)
-    return loss
+loss_metric_config = {
+    1: [metric_1.bce_dice_loss, metric_1.my_iou_metric_0, 'val_my_iou_metric_0'],
+    0: [metric_1.lovasz_loss, metric_1.my_iou_metric_1, 'val_my_iou_metric_1'],
+}
 
 class UNetXception:
     ''''''
@@ -47,6 +45,7 @@ class UNetXception:
 
         self.networks = []
 
+        # multiple stages
         for i in range(self.stages):
             if(i == 0):
                 inp = self.base_model.model.input
@@ -71,36 +70,29 @@ class UNetXception:
 
     def fit(self, X_train, Y_train, X_valid, Y_valid, epochs, batch_size, model_weight_file, learning_rate, stage=0):
 
+        loss_s = loss_metric_config[stage][0]
+        metric_s = loss_metric_config[stage][1]
+        monitor_s = loss_metric_config[stage][2]
+
         # early stopping
-        early_stopping = EarlyStopping(monitor='val_my_iou_metric_%s' % stage, mode='max', patience= 10, verbose=1)
+        early_stopping = EarlyStopping(monitor= monitor_s, mode='max', patience= 10, verbose=1)
 
         # save the best checkpoint
-        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor='val_my_iou_metric_%s' % stage,
-                                           mode='max', save_best_only=True, verbose=1)
+        model_checkpoint = ModelCheckpoint('%s.%s' % (model_weight_file, stage), monitor= monitor_s,mode='max', save_best_only=True, verbose=1)
 
         # dynamic reduce the learning rate
-        reduce_lr = ReduceLROnPlateau(monitor='val_my_iou_metric_%s' % stage, mode='max', factor=0.5, patience=5,
-                                      min_lr=0.00001, verbose=1)
+        reduce_lr = ReduceLROnPlateau(monitor= monitor_s, mode='max', factor=0.5, patience=5, min_lr= 0.00001, verbose=1)
 
-        callback_list = []
-        callback_list.append(model_checkpoint)
-        callback_list.append(reduce_lr)
-        #if (stage == self.stages - 1):
-        #    print('adding early stopping mechanism...')
-        callback_list.append(early_stopping)
+        callback_list = [model_checkpoint, reduce_lr, early_stopping]
 
         # compile
         opti = Adam(lr= learning_rate)
         net = self.networks[stage]
         # self.__freeze_model(net, self.freeze_till_layer) # freeze few layers while training
-        if (stage == 0):
-            net.compile(loss=metric_1.bce_dice_loss, optimizer= opti, metrics=[metric_1.my_iou_metric_0])
-        elif (stage == 1):
-            net.compile(loss=lovasz_loss, optimizer= opti, metrics=[metric_1.my_iou_metric_1])
+        net.compile(loss= loss_s, optimizer= opti, metrics=[metric_s])
 
         # fitting
-        net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,
-                callbacks=callback_list, verbose=2)
+        net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2)
 
     def predict(self, X_test, stage= -1):
         ''''''
@@ -243,7 +235,7 @@ class UNetXception:
         output_layer_noact = Conv2D(1, (1, 1), name="out")(uinput)
         output_layer = Activation('sigmoid')(output_layer_noact)
 
-        return output_layer
+        return output_layer_noact
 
 if __name__ == '__main__':
     UNetXception(input_shape= [101, 101, 3])

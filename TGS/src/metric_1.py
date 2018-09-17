@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 import keras.backend  as K
 from keras.losses import binary_crossentropy
-#from keras.objectives import binary_crossentropy
+from lovasz_losses_tf import lovasz_hinge
 
 def iou_metric(y_true_in, y_pred_in, print_table=False):
     labels = y_true_in
@@ -93,6 +93,13 @@ def bce_dice_loss(y_true, y_pred):
 def my_iou_metric_0(label, pred):
     metric_value = tf.py_func(iou_metric_batch, [label, pred > 0.5], tf.float64)
     return metric_value
+
+def lovasz_loss(y_true, y_pred):
+    y_true, y_pred = K.cast(K.squeeze(y_true, -1), 'int32'), K.cast(K.squeeze(y_pred, -1), 'float32')
+    # logits = K.log(y_pred / (1. - y_pred))
+    logits = y_pred
+    loss = lovasz_hinge(logits, y_true, per_image=True, ignore=None)
+    return loss
 
 # for the real logit
 def my_iou_metric_1(label, pred):
