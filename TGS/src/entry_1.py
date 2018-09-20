@@ -28,10 +28,11 @@ import utils
 import metric_1
 
 import UNetWithResBlock
-import UNetWithResNet
+import UNetInceptionResnetV2
 import UNetVGG16
 import UNetResNet50VGG16
 import UNetXception
+import DeeplabV3
 
 process = psutil.Process(os.getpid())
 def _print_memory_usage():
@@ -48,8 +49,16 @@ datestr = datetime.datetime.now().strftime("%Y%m%d")
 #datestr= '20180912'
 
 def get_model(strategy, phase= 'train'):
-    if (strategy == 'unet_resnet_v2'):
-        model = UNetWithResNet.UNetWithResNet(
+    if (strategy == 'deeplab_v2'):
+        model = DeeplabV3.DeeplabV3(
+            input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
+            stages=config.stages[strategy],
+            freeze_till_layer=config.freeze_till_layer[strategy],
+            print_network=False,
+            phase= phase,
+        )
+    elif (strategy == 'unet_resnet_v2'):
+        model = UNetInceptionResnetV2.UNetWithResNet(
             input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
             stages=config.stages[strategy],
             freeze_till_layer=config.freeze_till_layer[strategy],
@@ -370,7 +379,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-strategy', "--strategy",
-                        default= 'unet_xception',
+                        default= 'deeplab_v3',
                         help= "strategy",
                         choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16', 'unet_xception'])
 

@@ -5,6 +5,7 @@ import numpy as np
 import Xception
 from keras.models import Model
 
+from CyclicLearningRate import CyclicLR
 import keras.backend as K
 from keras.optimizers import Adam
 from keras.layers import Input, concatenate
@@ -18,8 +19,8 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from tqdm import tqdm
 
 loss_metric_config = {
-    1: [metric_1.bce_dice_loss, metric_1.my_iou_metric_0, 'val_my_iou_metric_0'],
-    0: [metric_1.lovasz_loss, metric_1.my_iou_metric_1, 'val_my_iou_metric_1'],
+    0: [metric_1.bce_dice_loss, metric_1.my_iou_metric_0, 'val_my_iou_metric_0'],
+    1: [metric_1.lovasz_loss, metric_1.my_iou_metric_1, 'val_my_iou_metric_1'],
 }
 
 class UNetXception:
@@ -34,7 +35,7 @@ class UNetXception:
         #self.base_model.summary()
         self.encoder_layers = {'block1_conv1_act': 3, 'block1_conv2_act': 6, 'block3_sepconv1_act': 16, 'block4_sepconv1_act': 26, 'block13_sepconv1_act': 116, 'block14_sepconv2_act': 131}
 
-        self.output_layer = self.__get_network()
+        self.output_layer = self.__get_network_1(act= 'relu')
         #### run with it out of training
         # for layer_name in self.encoder_layers.keys():
         #     for i, l in enumerate(self.base_model.layers):
@@ -83,7 +84,9 @@ class UNetXception:
         # dynamic reduce the learning rate
         reduce_lr = ReduceLROnPlateau(monitor= monitor_s, mode='max', factor=0.5, patience=5, min_lr= 0.00001, verbose=1)
 
-        callback_list = [model_checkpoint, reduce_lr, early_stopping]
+        clr = CyclicLR(base_lr= 0.0001, max_lr= 0.001, step_size= 500)
+
+        callback_list = [model_checkpoint, clr, early_stopping]
 
         # compile
         opti = Adam(lr= learning_rate)
@@ -92,7 +95,7 @@ class UNetXception:
         net.compile(loss= loss_s, optimizer= opti, metrics=[metric_s])
 
         # fitting
-        net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2)
+        net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2, shuffle= False)
 
     def predict(self, X_test, stage= -1):
         ''''''
@@ -116,10 +119,10 @@ class UNetXception:
         print(Y_valid.shape)
 
         thresholds = np.linspace(0.1, 0.9, 75)
-        if ((stage != 0) & (stage == self.stages - 1)):
+        if(loss_metric_config[stage][2] == 'val_my_iou_metric_1'):
             print('using logit thresholds...')
             thresholds = np.array([np.log(v / (1.0 - v)) for v in thresholds])  # transform into logits for the last model
-        else:
+        elif(loss_metric_config[stage][2] == 'val_my_iou_metric_0'):
             print('using proba thresholds...')
 
         # iou at different thresholds
@@ -134,12 +137,12 @@ class UNetXception:
 
         return iou_best, threshold_best
 
-    # def __conv_block_simple(self, prevlayer, filters, prefix, strides=(1, 1)):
-    #     conv = Conv2D(filters, (3, 3), padding="same", kernel_initializer="he_normal", strides=strides,
-    #                   name=prefix + "_conv")(prevlayer)
-    #     conv = BatchNormalization(name=prefix + "_bn")(conv)
-    #     conv = Activation('relu', name=prefix + "_activation")(conv)
-    #     return conv
+    def __conv_block_simple(self, prevlayer, filters, prefix, strides=(1, 1)):
+        conv = Conv2D(filters, (3, 3), padding="same", kernel_initializer="he_normal", strides=strides,
+                      name=prefix + "_conv")(prevlayer)
+        conv = BatchNormalization(name=prefix + "_bn")(conv)
+        conv = Activation('elu', name=prefix + "_activation")(conv)
+        return conv
 
     def __convolution_block(self, x, filters, size, strides=(1, 1), padding='same', activation=True):
         x = Conv2D(filters, size, strides=strides, padding=padding)(x)
@@ -166,76 +169,138 @@ class UNetXception:
         conv4 = self.base_model.model.layers[self.encoder_layers['block13_sepconv1_act']].output
         conv5 = self.base_model.model.layers[self.encoder_layers['block14_sepconv2_act']].output
 
-        # 3 -> 6
-        deconv5 = Conv2DTranspose(2048, (3, 3), strides= (2, 2), padding="same")(conv5)
-        uconv4  = concatenate([deconv5, conv4]) # 2048 + 728
-        uconv4 = Dropout(0.5)(uconv4)
+        #3 -> 6
+        deconv5 = Conv2DTranspose(2048, (3, 3), strides=(2, 2), padding="same")(conv5)
+        uconv4 = concatenate([deconv5, conv4])  # 2048 + 728
 
-        uconv4 = Conv2D(1024, (3, 3), activation=None, padding="same")(uconv4)
-        uconv4 = self.__residual_block(uconv4, 1024)
-        uconv4 = self.__residual_block(uconv4, 1024)
-        uconv4 = Activation('relu')(uconv4)
-
-        uconv4 = Conv2D(512, (3, 3), activation=None, padding="same")(uconv4)
-        uconv4 = self.__residual_block(uconv4, 512)
-        uconv4 = self.__residual_block(uconv4, 512)
-        uconv4 = Activation('relu')(uconv4)
+        uconv4 = self.__conv_block_simple(uconv4, 1024, "uconv4_0")
+        uconv4 = self.__conv_block_simple(uconv4, 512, "uconv4_2")
+        uconv4 = SpatialDropout2D(0.2)(uconv4)
 
         # 6 -> 12
-        deconv4 = Conv2DTranspose(256, (3, 3), strides= (2, 2), padding= 'same')(uconv4)
-        uconv3  = concatenate([deconv4, conv3]) # 256 + 256
-        uconv3 = Dropout(0.5)(uconv3)
+        deconv4 = Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same')(uconv4)
+        uconv3 = concatenate([deconv4, conv3])  # 256 + 256
 
-        uconv3 = Conv2D(256, (3, 3), activation=None, padding="same")(uconv3)
-        uconv3 = self.__residual_block(uconv3, 256)
-        uconv3 = self.__residual_block(uconv3, 256)
-        uconv3 = Activation('relu')(uconv3)
+        uconv3 = self.__conv_block_simple(uconv3, 256, "uconv3_0")
+        uconv3 = self.__conv_block_simple(uconv3, 256, "uconv3_1")
+        uconv3 = SpatialDropout2D(0.2)(uconv3)
 
         # 12 -> 24
-        deconv3 = Conv2DTranspose(128, (3, 3), strides= (2, 2), padding= 'same')(uconv3)
-        uconv2  = concatenate([deconv3, conv2]) # 128 + 128
-        uconv2 = Dropout(0.5)(uconv2)
+        deconv3 = Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same')(uconv3)
+        uconv2 = concatenate([deconv3, conv2])  # 128 + 128
 
-        uconv2 = Conv2D(128, (3, 3), activation=None, padding="same")(uconv2)
-        uconv2 = self.__residual_block(uconv2, 128)
-        uconv2 = self.__residual_block(uconv2, 128)
-        uconv2 = Activation('relu')(uconv2)
+        uconv2 = self.__conv_block_simple(uconv2, 128, "uconv2_0")
+        uconv2 = self.__conv_block_simple(uconv2, 128, "uconv2_1")
+        uconv2 = SpatialDropout2D(0.2)(uconv2)
 
-       # 24 -> 48
-        deconv2 = Conv2DTranspose(64, (3, 3), strides= (2, 2), padding= 'same')(uconv2)
-        uconv1  = concatenate([deconv2, conv1]) # 64 + 64
-        uconv1 = Dropout(0.5)(uconv1)
+        # 24 -> 48
+        deconv2 = Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same')(uconv2)
+        uconv1 = concatenate([deconv2, conv1])  # 64 + 64
 
-        uconv1 = Conv2D(64, (3, 3), activation=None, padding="same")(uconv1)
-        uconv1 = self.__residual_block(uconv1, 64)
-        uconv1 = self.__residual_block(uconv1, 64)
-        uconv1 = Activation('relu')(uconv1)
+        uconv1 = self.__conv_block_simple(uconv1, 64, "uconv1_0")
+        uconv1 = self.__conv_block_simple(uconv1, 64, "uconv1_1")
+        uconv1 = SpatialDropout2D(0.2)(uconv1)
 
         # 48 -> 50
-        deconv1 = Conv2DTranspose(32, (3, 3), strides= (1, 1), padding= 'valid')(uconv1)
-        uconv0  = concatenate([deconv1, conv0]) # 64 + 64
-        uconv0 = Dropout(0.5)(uconv0)
+        deconv1 = Conv2DTranspose(32, (3, 3), strides=(1, 1), padding='valid')(uconv1)
+        uconv0 = concatenate([deconv1, conv0])  # 64 + 64
 
-        uconv0 = Conv2D(32, (3, 3), activation=None, padding="same")(uconv0)
-        uconv0 = self.__residual_block(uconv0, 32)
-        uconv0 = self.__residual_block(uconv0, 32)
-        uconv0 = Activation('relu')(uconv0)
+        uconv0 = self.__conv_block_simple(uconv0, 32, "uconv0_0")
+        uconv0 = self.__conv_block_simple(uconv0, 32, "uconv0_1")
+        uconv0 = SpatialDropout2D(0.2)(uconv0)
 
         # 50 -> 101
-        deconv0 = Conv2DTranspose(16, (3, 3), strides= (2, 2), padding= 'valid')(uconv0)
-        uinput  = concatenate([deconv0, self.base_model.model.input]) # 32 + 32
-        uinput = Dropout(0.5)(uinput)
+        deconv0 = Conv2DTranspose(16, (3, 3), strides=(2, 2), padding='valid')(uconv0)
+        uinput = concatenate([deconv0, self.base_model.model.input])  # 32 + 32
 
-        uinput = Conv2D(16, (3, 3), activation=None, padding="same")(uinput)
-        uinput = self.__residual_block(uinput, 16)
-        uinput = self.__residual_block(uinput, 16)
-        uinput = Activation('relu')(uinput)
+        uinput = self.__conv_block_simple(uinput, 16, "uinput_0")
+        uinput = self.__conv_block_simple(uinput, 16, "uinput_1")
+        uinput = SpatialDropout2D(0.2)(uinput)
 
-        uinput = Dropout(0.25)(uinput)
         output_layer_noact = Conv2D(1, (1, 1), name="out")(uinput)
         output_layer = Activation('sigmoid')(output_layer_noact)
 
         return output_layer_noact
+
+    def __get_network_1(self, act= 'relu'):
+        ''''''
+        conv0 = self.base_model.model.layers[self.encoder_layers['block1_conv1_act']].output
+        conv1 = self.base_model.model.layers[self.encoder_layers['block1_conv2_act']].output
+        conv2 = self.base_model.model.layers[self.encoder_layers['block3_sepconv1_act']].output
+        conv3 = self.base_model.model.layers[self.encoder_layers['block4_sepconv1_act']].output
+        conv4 = self.base_model.model.layers[self.encoder_layers['block13_sepconv1_act']].output
+        conv5 = self.base_model.model.layers[self.encoder_layers['block14_sepconv2_act']].output
+
+        # 3 -> 6
+        deconv5 = Conv2DTranspose(2048, (3, 3), strides=(2, 2), padding="same")(conv5)
+        uconv4 = concatenate([deconv5, conv4])  # 2048 + 728
+
+        uconv4 = Dropout(0.25)(uconv4)
+        uconv4 = Conv2D(1024, (3, 3), activation=None, padding="same")(uconv4)
+        uconv4 = self.__residual_block(uconv4, 1024)
+        uconv4 = self.__residual_block(uconv4, 1024)
+        uconv4 = Activation(act)(uconv4)
+
+        uconv4 = Dropout(0.25)(uconv4)
+        uconv4 = Conv2D(512, (3, 3), activation=None, padding="same")(uconv4)
+        uconv4 = self.__residual_block(uconv4, 512)
+        uconv4 = self.__residual_block(uconv4, 512)
+        uconv4 = Activation(act)(uconv4)
+
+        # 6 -> 12
+        deconv4 = Conv2DTranspose(256, (3, 3), strides=(2, 2), padding='same')(conv4)
+        uconv3 = concatenate([deconv4, conv3])  # 256 + 256
+
+        uconv3 = Dropout(0.25)(uconv3)
+        uconv3 = Conv2D(256, (3, 3), activation=None, padding="same")(uconv3)
+        uconv3 = self.__residual_block(uconv3, 256)
+        uconv3 = self.__residual_block(uconv3, 256)
+        uconv3 = Activation(act)(uconv3)
+
+        # 12 -> 24
+        deconv3 = Conv2DTranspose(128, (3, 3), strides=(2, 2), padding='same')(uconv3)
+        uconv2 = concatenate([deconv3, conv2])  # 128 + 128
+
+        uconv2 = Dropout(0.25)(uconv2)
+        uconv2 = Conv2D(128, (3, 3), activation=None, padding="same")(uconv2)
+        uconv2 = self.__residual_block(uconv2, 128)
+        uconv2 = self.__residual_block(uconv2, 128)
+        uconv2 = Activation(act)(uconv2)
+
+        # 24 -> 48
+        deconv2 = Conv2DTranspose(64, (3, 3), strides=(2, 2), padding='same')(uconv2)
+        uconv1 = concatenate([deconv2, conv1])  # 64 + 64
+
+        uconv1 = Dropout(0.25)(uconv1)
+        uconv1 = Conv2D(64, (3, 3), activation=None, padding="same")(uconv1)
+        uconv1 = self.__residual_block(uconv1, 64)
+        uconv1 = self.__residual_block(uconv1, 64)
+        uconv1 = Activation(act)(uconv1)
+
+        # 48 -> 50
+        deconv1 = Conv2DTranspose(32, (3, 3), strides=(1, 1), padding='valid')(uconv1)
+        uconv0 = concatenate([deconv1, conv0])  # 64 + 64
+
+        uconv0 = Dropout(0.25)(uconv0)
+        uconv0 = Conv2D(32, (3, 3), activation=None, padding="same")(uconv0)
+        uconv0 = self.__residual_block(uconv0, 32)
+        uconv0 = self.__residual_block(uconv0, 32)
+        uconv0 = Activation(act)(uconv0)
+
+        # 50 -> 101
+        deconv0 = Conv2DTranspose(16, (3, 3), strides=(2, 2), padding='valid')(uconv0)
+        uinput = concatenate([deconv0, self.base_model.model.input])  # 32 + 32
+
+        uinput = Dropout(0.25)(uinput)
+        uinput = Conv2D(16, (3, 3), activation=None, padding="same")(uinput)
+        uinput = self.__residual_block(uinput, 16)
+        uinput = self.__residual_block(uinput, 16)
+        uinput = Activation(act)(uinput)
+
+        output_layer_noact = Conv2D(1, (1, 1), name="out")(uinput)
+        output_layer = Activation('sigmoid')(output_layer_noact)
+
+        return output_layer
 
 if __name__ == '__main__':
     UNetXception(input_shape= [101, 101, 3])

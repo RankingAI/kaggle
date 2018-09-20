@@ -16,6 +16,7 @@ from tqdm import tqdm
 
 from lovasz_losses_tf import lovasz_hinge
 import config
+import sys
 
 def lovasz_loss(y_true, y_pred):
     y_true, y_pred = K.cast(K.squeeze(y_true, -1), 'int32'), K.cast(K.squeeze(y_pred, -1), 'float32')
@@ -30,8 +31,10 @@ class UNetVGG16:
         self.stages = stages
 
         input_layer = Input(shape= input_shape)
-        base_model = VGG16(include_top= True, input_tensor= input_layer)
+        base_model = VGG16(include_top= False, input_tensor= input_layer)
 
+        base_model.summary()
+        sys.exit(1)
         output_layer = self.__get_network(base_model)
 
         self.networks = []

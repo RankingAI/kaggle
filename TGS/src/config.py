@@ -16,6 +16,7 @@ stages = {
     'unet_vgg16': 1,
     'unet_resnet50_vgg16': 1,
     'unet_xception': 1,
+    'deeplab_v3': 1,
 }
 
 encoder_input_size = {
@@ -24,6 +25,7 @@ encoder_input_size = {
     'unet_vgg16': 128,
     'unet_resnet50_vgg16': 256,
     'unet_xception': img_size_original,
+    'deeplab_v3': 128,
 }
 
 batch_size = {
@@ -32,6 +34,7 @@ batch_size = {
     'unet_vgg16': 32,
     'unet_resnet50_vgg16': 32,
     'unet_xception': 32,
+    'deeplab_v3': 16,
 }
 
 epochs = {
@@ -39,7 +42,8 @@ epochs = {
     'unet_resnet_v2': [25, 25],
     'unet_vgg16': [60],
     'unet_resnet50_vgg16': [2],
-    'unet_xception': [40, 40],
+    'unet_xception': [80, 40],
+    'deeplab_v3': 80,
 }
 
 learning_rate = {
@@ -47,7 +51,8 @@ learning_rate = {
     'unet_resnet_v2': 0.0005,
     'unet_vgg16': 0.0005,
     'unet_resnet50_vgg16': [0.0005],
-    'unet_xception': [0.0005, 0.00025],
+    'unet_xception': [0.001, 0.00025],
+    'deeplab_v3': [0.0005],
 }
 
 freeze_till_layer = {
@@ -56,6 +61,7 @@ freeze_till_layer = {
     'unet_vgg16': None,
     'unet_resnet50_vgg16': 'input_1',
     'unet_xception': 'input_1',
+    'deeplab_v3': None,
 }
 
 grayscale = {
@@ -64,4 +70,5 @@ grayscale = {
     'unet_vgg16': False,
     'unet_resnet50_vgg16': False,
     'unet_xception': False,
+    'deeplab_v3': False,
 }
