@@ -1,7 +1,7 @@
 DataBaseDir = '../data'
 ModelRootDir = '%s/model' % DataBaseDir
 
-debug = False
+debug = True
 
 kfold = 5
 kfold_seed = 2018
@@ -43,7 +43,7 @@ epochs = {
     'unet_vgg16': [60],
     'unet_resnet50_vgg16': [2],
     'unet_xception': [80, 40],
-    'deeplab_v3': 80,
+    'deeplab_v3': [80],
 }
 
 learning_rate = {

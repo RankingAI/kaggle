@@ -30,7 +30,7 @@ def load_raw_train(InputDir, return_image_files= False, debug= False, grayscale=
     train_df['coverage_level'] = train_df['coverage'].apply(lambda x: int(math.ceil(x * 10)))
 
     if(debug == True):
-        train_df = train_df.sample(frac= 0.2)
+        train_df = train_df.sample(frac= 0.1)
 
     if(return_image_files):
         image_files = ['%s/train/images/%s.png' % (InputDir, idx) for idx in train_df.index.values]

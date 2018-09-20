@@ -49,7 +49,7 @@ datestr = datetime.datetime.now().strftime("%Y%m%d")
 #datestr= '20180912'
 
 def get_model(strategy, phase= 'train'):
-    if (strategy == 'deeplab_v2'):
+    if (strategy == 'deeplab_v3'):
         model = DeeplabV3.DeeplabV3(
             input_shape=[config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3],
             stages=config.stages[strategy],

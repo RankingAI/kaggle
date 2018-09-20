@@ -50,11 +50,29 @@ class DeeplabV3:
             network = Model(inp, out)
             self.networks.append(network)
 
-        if(print_network):
-            for i in range(len(self.networks)):
-                print('\n ----------------- Summary of Network %s ------------------' % i)
-                self.networks[i].summary()
-                break
+        # if(print_network):
+        #     for i in range(len(self.networks)):
+        #         print('\n ----------------- Summary of Network %s ------------------' % i)
+        #         self.networks[i].summary()
+        #         break
+
+        for no, l in enumerate(self.networks[0].layers):
+            if(no >= 356):
+                print('------------------')
+            print(l.name)
+
+    # NOT used yet
+    def __freeze_model(self, model, freeze_before_layer):
+        if freeze_before_layer == "ALL":
+            for l in model.layers:
+                l.trainable = False
+        else:
+            freeze_before_layer_index = -1
+            for i, l in enumerate(model.layers):
+                if l.name == freeze_before_layer:
+                    freeze_before_layer_index = i
+            for l in model.layers[:freeze_before_layer_index]:
+                l.trainable = False
 
     def load_weight(self, weight_file, stage= -1):
         ''''''
@@ -89,6 +107,9 @@ class DeeplabV3:
         # load weights
         weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels.h5',WEIGHTS_PATH_X,cache_subdir='models')
         net.load_weights(weights_path, by_name=True)
+
+        # freeze
+        self.__freeze_model(net, 'average_pooling2d_1') # freeze few layers while training
 
         # fitting
         net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2, shuffle= False)
@@ -139,3 +160,6 @@ class DeeplabV3:
         output_layer = Activation('sigmoid')(output_layer_noact)
 
         return output_layer
+
+if __name__ == '__main__':
+    DeeplabV3(input_shape= [128, 128, 3], stages= 1, print_network= True)
