@@ -61,7 +61,7 @@ freeze_till_layer = {
     'unet_vgg16': None,
     'unet_resnet50_vgg16': 'input_1',
     'unet_xception': 'input_1',
-    'deeplab_v3': None,
+    'deeplab_v3': 'average_pooling2d_1',
 }
 
 grayscale = {

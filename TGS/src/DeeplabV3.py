@@ -34,6 +34,7 @@ class DeeplabV3:
         self.stages = stages
         self.input_shape = input_shape
         self.input_layer = Input(shape= input_shape)
+        self.freeze_till_layer = freeze_till_layer
 
         self.output_layer = self.__get_network()
 
@@ -109,7 +110,7 @@ class DeeplabV3:
         net.load_weights(weights_path, by_name=True)
 
         # freeze
-        self.__freeze_model(net, 'average_pooling2d_1') # freeze few layers while training
+        self.__freeze_model(net, self.freeze_till_layer) # freeze few layers while training
 
         # fitting
         net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2, shuffle= False)
