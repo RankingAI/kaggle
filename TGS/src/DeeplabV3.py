@@ -36,31 +36,41 @@ class DeeplabV3:
         self.input_layer = Input(shape= input_shape)
         self.freeze_till_layer = freeze_till_layer
 
-        self.output_layer = self.__get_network()
+        self.base_model = deeplab_v3.Deeplabv3(input_shape= self.input_shape, input_tensor= self.input_layer, classes= 1, backbone= 'xception')#self.__get_network()
+        # load weights
+        weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels.h5',WEIGHTS_PATH_X,cache_subdir='models')
+        self.base_model.load_weights(weights_path, by_name=True)
+
+        # freeze
+        if(self.freeze_till_layer):
+            print('freeze layers till %s' % self.freeze_till_layer)
+            self.__freeze_model(self.base_model, self.freeze_till_layer) # freeze few layers while training
+        else:
+            print('no layers need to be frozen yet!')
 
         self.networks = []
 
         # multiple stages
         for i in range(self.stages):
             if(i == 0):
-                inp = self.input_layer
-                out = self.output_layer
+                inp = self.base_model.input
+                out = Activation('sigmoid')(self.base_model.output)
             else:
                 inp = self.networks[i - 1].layers[0].input
                 out = self.networks[i - 1].layers[-1].input
             network = Model(inp, out)
             self.networks.append(network)
 
-        # if(print_network):
-        #     for i in range(len(self.networks)):
-        #         print('\n ----------------- Summary of Network %s ------------------' % i)
-        #         self.networks[i].summary()
-        #         break
+        if(print_network):
+            for i in range(len(self.networks)):
+                print('\n ----------------- Summary of Network %s ------------------' % i)
+                self.networks[i].summary()
+                break
 
-        for no, l in enumerate(self.networks[0].layers):
-            if(no >= 356):
-                print('------------------')
-            print(l.name)
+        # for no, l in enumerate(self.networks[0].layers):
+        #     if(no >= 356):
+        #         print('------------------')
+        #     print(l.name)
 
     # NOT used yet
     def __freeze_model(self, model, freeze_before_layer):
@@ -105,12 +115,7 @@ class DeeplabV3:
         net = self.networks[stage]
         net.compile(loss= loss_s, optimizer= opti, metrics=[metric_s])
 
-        # load weights
-        weights_path = get_file('deeplabv3_xception_tf_dim_ordering_tf_kernels.h5',WEIGHTS_PATH_X,cache_subdir='models')
-        net.load_weights(weights_path, by_name=True)
 
-        # freeze
-        self.__freeze_model(net, self.freeze_till_layer) # freeze few layers while training
 
         # fitting
         net.fit(X_train, Y_train, validation_data=[X_valid, Y_valid], epochs=epochs, batch_size=batch_size,callbacks=callback_list, verbose=2, shuffle= False)
@@ -154,13 +159,6 @@ class DeeplabV3:
         iou_best = ious[threshold_best_index]
 
         return iou_best, threshold_best
-
-
-    def __get_network(self):
-        output_layer_noact = deeplab_v3.Deeplabv3(input_tensor= self.input_layer, input_shape= self.input_shape, classes= 1, backbone= 'xception')
-        output_layer = Activation('sigmoid')(output_layer_noact)
-
-        return output_layer
 
 if __name__ == '__main__':
     DeeplabV3(input_shape= [128, 128, 3], stages= 1, print_network= True)

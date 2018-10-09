@@ -9,6 +9,7 @@ from tqdm import tqdm
 import argparse
 import glob
 import psutil
+from data_augmentation import reflect_pad_image
 
 os.environ['PYTHONHASHSEED'] = '0'
 
@@ -40,13 +41,13 @@ def _print_memory_usage():
     print('\n---- Current memory usage %sM ----\n' % int(process.memory_info().rss/(1024*1024)))
 
 # configuration for GPU resources
-with K.tf.device('/device:GPU:0'):
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 1.0, allow_growth=False)
-    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-    K.set_session(sess)
+#with K.tf.device('/device:GPU:0'):
+gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction= 0.9, allow_growth=False)
+sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+K.set_session(sess)
 
-datestr = datetime.datetime.now().strftime("%Y%m%d")
-#datestr= '20180912'
+#datestr = datetime.datetime.now().strftime("%Y%m%d")
+datestr= '20181008'
 
 def get_model(strategy, phase= 'train'):
     if (strategy == 'deeplab_v3'):
@@ -90,15 +91,42 @@ def get_model(strategy, phase= 'train'):
             print_network= False,
         )
     elif (strategy == 'unet_res_block'):
-        model = UNetWithResBlock.UNetWithResBlock(input_shape=[config.img_size_original, config.img_size_original, 1],
+        if((config.grayscale[strategy] == True) & (config.depth_channel == True)):
+            input_shape = [config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3]
+        elif(config.grayscale[strategy] == True):
+            input_shape = [config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1]
+        else:
+            input_shape = [config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3]
+        model = UNetWithResBlock.UNetWithResBlock(input_shape= input_shape,
                                                   stages=config.stages[strategy],
-                                                  learning_rate=config.learning_rate[strategy],
                                                   print_network=False,
                                                   )
     else:
         print('=========== strategy %s not matched!!!' % strategy)
         return None
     return model
+
+def get_aug_params(strategy):
+    ''''''
+    if(config.grayscale[strategy] == False):
+        channels = 3
+    elif((config.grayscale[strategy] == True) & (config.depth_channel == True)):
+        channels = 3
+    else:
+        channels = 1
+    double_size = False
+    pad_size_1 = 0
+    pad_size_2 = 0
+    if(config.encoder_input_size[strategy] == 128):
+        pad_size_1 = 13
+        pad_size_2 = 14
+        double_size = False
+    elif(config.encoder_input_size[strategy] == 256):
+        pad_size_1 = 27
+        pad_size_2 = 27
+        double_size = True
+
+    return channels, double_size, pad_size_1, pad_size_2
 
 def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, strategy):
     ''''''
@@ -114,6 +142,8 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
 
     _print_memory_usage()
 
+    channels, double_size, pad_size_1, pad_size_2 = get_aug_params(strategy)
+
     ## cv with depth version
     kf = model_selection.KFold(n_splits= config.kfold, random_state= config.kfold_seed, shuffle= True)
     for fold, (train_index, valid_index) in enumerate(kf.split(train_data['z'])):
@@ -122,12 +152,57 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
         fold_start = time.time()
 
         FoldTrain, FoldValid = train_data.iloc[train_index, :], train_data.iloc[valid_index, :]
-        # data augmentation, just for train part
-        with utils.timer('Augmentation on train'):
-            X_train = data_utils.y_axis_flip(np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldTrain['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3)))
-            Y_train = data_utils.y_axis_flip(np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldTrain['masks'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1)))
-            X_valid = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldValid['images'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 3))
-            Y_valid = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in FoldValid['masks'].values]).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1))
+
+        # resize
+        with utils.timer('resize'):
+            if(double_size):
+                X_train = [utils.img_resize(v, config.img_size_original, config.img_size_original * 2) for v in FoldTrain['images'].values]
+                Y_train = [utils.img_resize(v, config.img_size_original, config.img_size_original * 2) for v in FoldTrain['masks'].values]
+                X_valid = [utils.img_resize(v, config.img_size_original, config.img_size_original * 2) for v in FoldValid['images'].values]
+                Y_valid = [utils.img_resize(v, config.img_size_original, config.img_size_original * 2) for v in FoldValid['masks'].values]
+            else:
+                X_train = FoldTrain['images'].values
+                Y_train = FoldTrain['masks'].values
+                X_valid = FoldValid['images'].values
+                Y_valid = FoldValid['masks'].values
+
+            print('image size: ')
+            print(X_train[0].shape)
+
+        # reflect padding
+        with utils.timer('padding'):
+            if((pad_size_1 > 0) | (pad_size_2 > 0)):
+                X_train = np.array([reflect_pad_image(v, pad_size_1, pad_size_2).tolist() for v in X_train])
+                Y_train = np.array([reflect_pad_image(v, pad_size_1, pad_size_2).tolist() for v in Y_train])
+                X_valid = np.array([reflect_pad_image(v, pad_size_1, pad_size_2).tolist() for v in X_valid])
+                Y_valid = np.array([reflect_pad_image(v, pad_size_1, pad_size_2).tolist() for v in Y_valid])
+            else:
+                X_train = np.array([v.tolist() for v in X_train])
+                Y_train = np.array([v.tolist() for v in Y_train])
+                X_valid = np.array([v.tolist() for v in X_valid])
+                Y_valid = np.array([v.tolist() for v in Y_valid])
+
+            print('image size: ')
+            print(X_train[0].shape)
+
+        # add depth channels if possible
+        with utils.timer('add depth channels'):
+            if((config.grayscale[strategy] == True) & (config.depth_channel == True)):
+                X_train = np.array([data_utils.add_depth_channels(np.array(v)).tolist() for v in X_train])
+                X_valid = np.array([data_utils.add_depth_channels(np.array(v)).tolist() for v in X_valid])
+
+                print('image size: ')
+                print(X_train[0].shape)
+
+        # augmentation, horizontal flip
+        with utils.timer('flip'):
+            X_train = data_utils.y_axis_flip(X_train).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], channels))
+            Y_train = data_utils.y_axis_flip(Y_train).reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1))
+            X_valid = X_valid.reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], channels))
+            Y_valid = Y_valid.reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], 1))
+
+            print('image size: ')
+            print(X_train[0].shape)
 
         _print_memory_usage()
 
@@ -142,20 +217,35 @@ def train(train_data, ModelWeightDir, EvaluateFile, image_files, PredictDir, str
         print(Y_valid.shape)
         print('\n')
 
-        model_weight_file = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
+        model_weight_file = '%s/%s.fold.%s' % (ModelWeightDir, strategy, fold)
         model = get_model(strategy)
 
         for s in range(config.stages[strategy]):
+            print('training on stage %s ...' % s)
+
+            stage_model_weight_file = '{}.stage.{}'.format(model_weight_file, s)
+
             # fitting
             with utils.timer('Fitting model %s' % s):
-                model.fit(X_train, Y_train, X_valid, Y_valid, config.epochs[strategy][s], config.batch_size[strategy], model_weight_file, learning_rate= config.learning_rate[strategy][s], stage= s)
+                model.fit(X_train, Y_train, X_valid, Y_valid,
+                          epochs= config.epochs[strategy][s],
+                          batch_size= config.batch_size[strategy],
+                          model_weight_file= stage_model_weight_file,
+                          learning_rate= config.learning_rate[strategy][s],
+                          stage= s,
+                          snapshot_ensemble= False)
 
             # evaluate
             with utils.timer('Evaluate with model %s' % s):
                 # predict
                 pred_valid = model.predict(X_valid, stage= s)
-                # resize to original shape
-                pred_valid = np.array([utils.img_resize(v, from_size= config.encoder_input_size[strategy], to_size= config.img_size_original).squeeze().tolist() for v in pred_valid])
+                # restore into original shape
+                if((pad_size_1 > 0) | (pad_size_2 > 0)):
+                    pred_valid = [v[pad_size_1: -pad_size_2, pad_size_1: -pad_size_2] for v in pred_valid]
+                if(double_size):
+                    pred_valid = np.array([utils.img_resize(v, from_size= config.img_size_original * 2, to_size= config.img_size_original).squeeze().tolist() for v in pred_valid])
+                else:
+                    pred_valid = np.array([v.squeeze().tolist() for v in pred_valid])
                 print('predict done.')
                 # evaluate
                 iou, threshold = model.evaluate(pred_valid, np.array(FoldValid['masks'].values.tolist()).reshape((-1, config.img_size_original, config.img_size_original)), stage= s)
@@ -237,38 +327,80 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
             for s in range(config.stages[strategy]):
                 cv_threshold[fold, s] = np.float32(parts[1 + config.stages[strategy] * 1 + s])
     i_file.close()
+    best_stage = np.argmax(cv_iou, axis= 1)
+    best_iou = cv_iou[np.arange(len(cv_iou)), best_stage]
+    best_threshold = cv_threshold[np.arange(len(cv_threshold)), best_stage]
+    print('\n------------------------------------')
+    print('best stage in folds:')
+    print(best_stage)
+    print('best iou in folds:')
+    print(best_iou)
+    print('best threshold in folds:')
+    print(best_threshold)
+    print('------------------------------------\n')
 
     with utils.timer('reset index on test data'):
         test_data.reset_index(drop= False, inplace= True)
         test_data.rename(index= str, columns= {'index': 'id'}, inplace= True)
 
+    channels, double_size, pad_size_1, pad_size_2 = get_aug_params(strategy)
+
     pred_result = np.zeros((len(test_data), config.img_size_original, config.img_size_original), dtype= np.float64)
     # do submit with CV
-    model_no = config.stages[strategy] - 1
     for fold in range(config.kfold):
 
         # load model
         with utils.timer('Load model'):
-
+            # model architecture
             model= get_model(strategy, 'submit')
+            # load weight
+            ModelWeightFile = '%s/%s.fold.%s.stage.%s' % (ModelWeightDir, strategy, fold, best_stage[fold])
+            model.load_weight(ModelWeightFile, best_stage[fold])
 
-            ModelWeightFile = '%s/%s.weight.%s' % (ModelWeightDir, strategy, fold)
-            model.load_weight(ModelWeightFile, model_no)
-
-        print('predict threshold %.6f' % cv_threshold[fold, model_no])
+        print('fold %s, stage %s, threshold %.6f, iou %.6f' % (fold, best_stage[fold], best_threshold[fold], best_iou[fold]))
 
         # infer
         with utils.timer('Infer'):
             preds_test = []
+
             for batch_no, batch_index in enumerate(batch(test_data.index.values, config.infer_batch_size)):
+
                 with utils.timer('batch %s/%s' % (((batch_no + 1) * config.infer_batch_size), len(test_data))):
                     test_images = test_data['images'][batch_index]
-                    # resize to input shape before prediction
-                    X_test = np.array([utils.img_resize(v, config.img_size_original, config.encoder_input_size[strategy]).tolist() for v in test_images])
+
+                    # resize
+                    if (double_size):
+                        with utils.timer('resize'):
+                            X_test = [utils.img_resize(v, config.img_size_original, config.img_size_original * 2) for v in test_images]
+                    else:
+                        X_test = test_images
+
+                    # reflect padding
+                    if ((pad_size_1 > 0) | (pad_size_2 > 0)):
+                        with utils.timer('padding'):
+                            X_test = np.array([reflect_pad_image(v, pad_size_1, pad_size_2).tolist() for v in X_test])
+
+                    # add depth channels if possible
+                    if ((config.grayscale[strategy] == True) & (config.depth_channel == True)):
+                        with utils.timer('add depth channels'):
+                            X_test = np.array([data_utils.add_depth_channels(np.array(v)).tolist() for v in X_test])
+
+                    X_test = X_test.reshape((-1, config.encoder_input_size[strategy], config.encoder_input_size[strategy], channels))
+
                     # predict value, logit or probability, with the last model
-                    pred_batch = model.predict(X_test, stage= model_no)
+                    pred_batch = model.predict(X_test, stage= best_stage[fold])
+
+                    # restore into original shape
+                    if ((pad_size_1 > 0) | (pad_size_2 > 0)):
+                        with utils.timer('padding'):
+                            pred_batch = [v[pad_size_1: -pad_size_2, pad_size_1: -pad_size_2] for v in pred_batch]
+                    if (double_size):
+                        with utils.timer('resize'):
+                            pred_batch = [utils.img_resize(v, from_size=config.img_size_original * 2,to_size=config.img_size_original) for v in pred_batch]
+                    print('predict done.')
+
                     # resize to original shape and convert into label
-                    pred_batch = [np.int32(np.round(utils.img_resize(v, from_size=config.encoder_input_size[strategy], to_size=config.img_size_original) > cv_threshold[fold, model_no])).squeeze().tolist() for v in pred_batch]
+                    pred_batch = [np.int32(np.round(v > best_threshold[fold])).squeeze().tolist() for v in pred_batch]
                     preds_test.append(pred_batch)
                     del X_test, pred_batch
                     gc.collect()
@@ -277,18 +409,26 @@ def infer(test_data, ModelWeightDir, EvaluateFile, strategy):
             gc.collect()
 
         print('fold %s done' % fold)
-        #break
         with utils.timer('clear session'):
             K.clear_session()
 
     # average them
     pred_result = np.round(pred_result / config.kfold)
+    #pred_result = pred_result
 
     return pred_result
 
 def save_submit(predict, indexes, SubmitDir, strategy):
+    #
+    TestOutput = '%s/test' % SubmitDir
+    if(os.path.exists(TestOutput) == False):
+        os.makedirs(TestOutput)
+    with utils.timer('save test'):
+        for i, idx in enumerate(tqdm(indexes)):
+            np.save('%s/%s.npy' % (TestOutput, idx), predict[i])
+
     # save
-    with utils.timer('Save'):
+    with utils.timer('save submit'):
         pred_dict = {idx: utils.RLenc(predict[i]) for i, idx in enumerate(tqdm(indexes))}
         sub = pd.DataFrame.from_dict(pred_dict, orient='index')
         sub.index.names = ['id']
@@ -379,12 +519,12 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
 
     parser.add_argument('-strategy', "--strategy",
-                        default= 'deeplab_v3',
+                        default= 'unet_resnet_v2',
                         help= "strategy",
-                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16', 'unet_xception'])
+                        choices= ['unet_res_block', 'unet_resnet_v2', 'unet_vgg16', 'unet_resnet50_vgg16', 'unet_xception', 'deeplab_v3'])
 
     parser.add_argument('-phase', "--phase",
-                        default= 'train',
+                        default= 'submit',
                         help= "project phase",
                         choices= ['train', 'debug', 'submit', 'resubmit'])
     parser.add_argument('-data_input', '--data_input',

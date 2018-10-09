@@ -503,7 +503,9 @@ def Deeplabv3(weights='pascal_voc', input_tensor=None, input_shape=(512, 512, 3)
     else:
         inputs = img_input
 
-    return output_layer_noact
+    model = Model(inputs, output_layer_noact)
+
+    return model
 
 def preprocess_input(x):
     """Preprocesses a numpy array encoding a batch of images.
